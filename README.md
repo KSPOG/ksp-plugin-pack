@@ -1,2 +1,2 @@
 # ksp-plugin-pack
-All plugins made by KSP
+Here i'l be adding all the plugins i made & will make.
