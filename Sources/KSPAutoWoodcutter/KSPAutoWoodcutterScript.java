@@ -131,7 +131,7 @@ public class KSPAutoWoodcutterScript extends Script {
                     return;
                 }
 
-                if (Rs2Player.getWorldLocation().distanceTo(targetLocation) > 6) {
+                if (Rs2Player.getWorldLocation().distanceTo(targetLocation) > 20) {
                     status = "Walking to trees";
                     Rs2Walker.walkTo(targetLocation);
                     return;
