@@ -1,4 +1,4 @@
-package net.runelite.client.plugins.microbot.KSPAccountBuilder;
+package net.runelite.client.plugins.microbot.kspaccountbuilder;
 
 import com.google.inject.Provides;
 import lombok.extern.slf4j.Slf4j;
@@ -6,67 +6,56 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.microbot.PluginConstants;
-import net.runelite.client.plugins.microbot.KSPAutoMiner.KSPAutoMinerConfig;
-import net.runelite.client.plugins.microbot.KSPAutoWoodcutter.KSPAutoWoodcutterConfig;
 import net.runelite.client.ui.overlay.OverlayManager;
 
 import javax.inject.Inject;
-import java.awt.AWTException;
 
 @PluginDescriptor(
         name = PluginConstants.KSP + "Account Builder",
-        description = "Builds accounts by training Mining and Woodcutting",
-        tags = {"account", "mining", "woodcutting", "ksp"},
-        version = KSPAccountBuilderPlugin.version,
+        description = "Skeleton plugin for KSP account builder automation",
+        tags = {"microbot", "ksp", "account", "builder"},
+        authors = {"KSP"},
+        version = KspAccountBuilderPlugin.VERSION,
         minClientVersion = "2.0.13",
         enabledByDefault = PluginConstants.DEFAULT_ENABLED,
         isExternal = PluginConstants.IS_EXTERNAL
 )
 @Slf4j
-public class KSPAccountBuilderPlugin extends Plugin {
-    public static final String version = "0.2.2";
+@SuppressWarnings("unused") // Loaded dynamically by the hub build/plugin discovery process.
+public class KspAccountBuilderPlugin extends Plugin
+{
+    public static final String VERSION = "1.4.15";
 
     @Inject
-    private KSPAccountBuilderConfig config;
+    private KspAccountBuilderScript script;
 
     @Inject
-    private KSPAutoMinerConfig minerConfig;
-
-    @Inject
-    private KSPAutoWoodcutterConfig woodcutterConfig;
-
-    @Provides
-    KSPAccountBuilderConfig provideConfig(ConfigManager configManager) {
-        return configManager.getConfig(KSPAccountBuilderConfig.class);
-    }
-
-    @Provides
-    KSPAutoMinerConfig provideMinerConfig(ConfigManager configManager) {
-        return configManager.getConfig(KSPAutoMinerConfig.class);
-    }
-
-    @Provides
-    KSPAutoWoodcutterConfig provideWoodcutterConfig(ConfigManager configManager) {
-        return configManager.getConfig(KSPAutoWoodcutterConfig.class);
-    }
-
-    @Inject
-    private OverlayManager overlayManager;
+    private KspAccountBuilderConfig config;
 
     @Inject
     private KSPAccountBuilderOverlay overlay;
 
     @Inject
-    private KSPAccountBuilderScript script;
+    private OverlayManager overlayManager;
 
-    @Override
-    protected void startUp() throws AWTException {
-        overlayManager.add(overlay);
-        script.run(config, minerConfig, woodcutterConfig);
+    @Provides
+    KspAccountBuilderConfig provideConfig(ConfigManager configManager)
+    {
+        return configManager.getConfig(KspAccountBuilderConfig.class);
     }
 
     @Override
-    protected void shutDown() {
+    protected void startUp()
+    {
+        log.info("Starting KSP Account Builder plugin");
+        overlayManager.add(overlay);
+        script.run(config);
+    }
+
+    @Override
+    protected void shutDown()
+    {
+        log.info("Stopping KSP Account Builder plugin");
         script.shutdown();
         overlayManager.remove(overlay);
     }

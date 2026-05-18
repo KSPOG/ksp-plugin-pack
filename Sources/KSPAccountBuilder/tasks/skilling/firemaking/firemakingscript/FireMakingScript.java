@@ -1,0 +1,723 @@
+package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.firemakingscript;
+
+import java.awt.event.KeyEvent;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import javax.inject.Singleton;
+
+import net.runelite.api.Skill;
+import net.runelite.api.coords.WorldArea;
+import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.widgets.Widget;
+import net.runelite.client.plugins.microbot.Microbot;
+import net.runelite.client.plugins.microbot.Script;
+import net.runelite.client.plugins.microbot.api.tileobject.models.Rs2TileObjectModel;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.fmarea.FireArea;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.loglevels.LogsLvl;
+import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
+import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
+import net.runelite.client.plugins.microbot.util.keyboard.Rs2Keyboard;
+import net.runelite.client.plugins.microbot.util.player.Rs2Player;
+import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
+import net.runelite.client.plugins.microbot.util.widget.Rs2Widget;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+@Singleton
+public class FireMakingScript extends Script
+{
+    private static final Logger log = LoggerFactory.getLogger(FireMakingScript.class);
+
+    private static final int LOOP_DELAY_MS = 600;
+    private static final int WEB_WALK_COOLDOWN_MS = 3_000;
+    private static final int FIRE_INTERACT_COOLDOWN_MS = 2_000;
+    private static final int FIRE_START_GRACE_MS = 2_500;
+    private static final int CAMPFIRE_DISTANCE = 6;
+
+    private static final int NORMAL_FIRE_ID = 26185;
+    private static final int FORESTERS_CAMPFIRE_ID = 49927;
+
+    private static final String TINDERBOX_NAME = "Tinderbox";
+    private static final String BURN_PROMPT_TEXT = "How many would you like to burn?";
+
+    private FireArea targetArea = FireArea.FM_AREA_DRAYNOR_BANK;
+
+    private long lastWebWalkAtMs;
+    private long lastFireInteractAtMs;
+    private long awaitingFireStartAtMs;
+
+    private boolean expectingFiremakingXpDrop;
+    private boolean debugLogging;
+    private boolean walkingToTargetArea;
+
+    public void setDebugLogging(boolean debugLogging)
+    {
+        this.debugLogging = debugLogging;
+    }
+
+    public boolean run(FireArea area)
+    {
+        shutdown();
+
+        this.targetArea = area;
+
+        mainScheduledFuture = scheduledExecutorService.scheduleWithFixedDelay(() ->
+        {
+            if (!super.run() || !Microbot.isLoggedIn())
+            {
+                return;
+            }
+
+            String targetLogName = resolveTargetLogName();
+
+            if (targetLogName == null)
+            {
+                debug("No firemaking log target available for current level");
+                return;
+            }
+
+            if (expectingFiremakingXpDrop && Rs2Player.waitForXpDrop(Skill.FIREMAKING, 4500))
+            {
+                debug("Firemaking in progress with {}", targetLogName);
+                return;
+            }
+
+            int targetLogId = getTargetLogId(targetLogName);
+            KspTaskDebug.throttled(log, debugLogging, "Firemaking", "loop", 5_000L,
+                    "loop | targetLog={} targetId={} area={} player={} moving={} animating={} interacting={} invLogs={} bankOpen={} burnPromptOpen={} awaitingStart={}",
+                    targetLogName,
+                    targetLogId,
+                    targetArea.getDisplayName(),
+                    Rs2Player.getWorldLocation(),
+                    Rs2Player.isMoving(),
+                    Rs2Player.isAnimating(),
+                    Rs2Player.isInteracting(),
+                    Rs2Inventory.count(targetLogName),
+                    Rs2Bank.isOpen(),
+                    isBurnPromptOpen(),
+                    awaitingFireStartAtMs != 0L);
+
+            if (handleBurnPrompt(targetLogName, targetLogId))
+            {
+                return;
+            }
+
+            WorldPoint fireLocation = findActiveFireLocationInTargetArea();
+
+            if (!ensureSupplies(targetLogName, fireLocation != null))
+            {
+                return;
+            }
+
+            if (!ensureInTargetArea())
+            {
+                return;
+            }
+
+            if (!isIdleInTargetArea())
+            {
+                return;
+            }
+
+            fireLocation = findActiveFireLocationInTargetArea();
+
+            if (fireLocation != null)
+            {
+                useCampfire(targetLogId, fireLocation);
+                return;
+            }
+
+            buildFire(targetLogName);
+
+        }, 0L, LOOP_DELAY_MS, TimeUnit.MILLISECONDS);
+
+        return true;
+    }
+
+    private String resolveTargetLogName()
+    {
+        int firemakingLevel = Microbot.getClient().getRealSkillLevel(Skill.FIREMAKING);
+        LogsLvl bestMatch = null;
+
+        for (LogsLvl logsLvl : LogsLvl.values())
+        {
+            if (firemakingLevel >= logsLvl.getRequiredLevel())
+            {
+                bestMatch = logsLvl;
+            }
+        }
+
+        if (bestMatch == null)
+        {
+            return null;
+        }
+
+        if (hasLogsAvailable(bestMatch.getDisplayName()))
+        {
+            return bestMatch.getDisplayName();
+        }
+
+        for (int i = bestMatch.ordinal() - 1; i >= 0; i--)
+        {
+            String fallbackLogName = LogsLvl.values()[i].getDisplayName();
+
+            if (hasLogsAvailable(fallbackLogName))
+            {
+                return fallbackLogName;
+            }
+        }
+
+        return bestMatch.getDisplayName();
+    }
+
+    private boolean ensureSupplies(String targetLogName, boolean hasActiveFire)
+    {
+        if (hasLogsForCurrentTarget(targetLogName)
+                && (hasActiveFire || Rs2Inventory.hasItem(TINDERBOX_NAME)))
+        {
+            return true;
+        }
+
+        awaitingFireStartAtMs = 0L;
+        expectingFiremakingXpDrop = false;
+
+        if (Rs2Bank.isOpen())
+        {
+            return prepareSuppliesFromBank(targetLogName, hasActiveFire);
+        }
+
+        if (Rs2Bank.walkToBankAndUseBank() || Rs2Bank.openBank())
+        {
+            return false;
+        }
+
+        Microbot.status = "Walking to nearest bank";
+        Rs2Bank.walkToBankAndUseBank();
+        return false;
+    }
+
+    private boolean prepareSuppliesFromBank(String targetLogName, boolean hasActiveFire)
+    {
+        if (!Rs2Bank.isOpen())
+        {
+            return false;
+        }
+
+        if (Rs2Inventory.hasItem(TINDERBOX_NAME) || !hasActiveFire)
+        {
+            Rs2Bank.depositAllExcept(TINDERBOX_NAME);
+        }
+        else
+        {
+            Rs2Bank.depositAll();
+        }
+
+        sleep(200);
+
+        if (!hasActiveFire && !Rs2Inventory.hasItem(TINDERBOX_NAME))
+        {
+            if (Rs2Bank.count(TINDERBOX_NAME) <= 0)
+            {
+                debug("No tinderbox available in bank");
+                return false;
+            }
+
+            if (!Rs2Bank.withdrawOne(TINDERBOX_NAME))
+            {
+                return false;
+            }
+
+            sleepUntil(() -> Rs2Inventory.hasItem(TINDERBOX_NAME), 2_000);
+        }
+
+        if (Rs2Bank.count(targetLogName) <= 0)
+        {
+            debug("No {} available in bank", targetLogName);
+            return false;
+        }
+
+        if (!Rs2Bank.withdrawAll(targetLogName))
+        {
+            return false;
+        }
+
+        sleepUntil(() -> Rs2Inventory.hasItem(targetLogName), 2_000);
+
+        if (!Rs2Inventory.hasItem(targetLogName))
+        {
+            debug("Failed to withdraw {}", targetLogName);
+            return false;
+        }
+
+        Rs2Bank.closeBank();
+        sleepUntil(() -> !Rs2Bank.isOpen(), 1_500);
+
+        return false;
+    }
+
+    private boolean hasLogsForCurrentTarget(String targetLogName)
+    {
+        return Rs2Inventory.hasItem(targetLogName);
+    }
+
+    private boolean hasLogsAvailable(String targetLogName)
+    {
+        return Rs2Inventory.hasItem(targetLogName) || Rs2Bank.count(targetLogName) > 0;
+    }
+
+    private boolean ensureInTargetArea()
+    {
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+
+        if (playerLocation == null)
+        {
+            return false;
+        }
+
+        WorldArea area = targetArea.toWorldArea();
+
+        if (area.contains(playerLocation))
+        {
+            clearTargetAreaWalkIfNeeded();
+            return true;
+        }
+
+        if (Rs2Player.isMoving())
+        {
+            return false;
+        }
+
+        long now = System.currentTimeMillis();
+        if (now - lastWebWalkAtMs < WEB_WALK_COOLDOWN_MS)
+        {
+            return false;
+        }
+
+        WorldPoint walkTarget = targetArea.getRandomPoint();
+
+        Microbot.status = "Walking to firemaking area";
+        lastWebWalkAtMs = now;
+        walkingToTargetArea = true;
+        Rs2Walker.walkTo(walkTarget, 2);
+
+        return false;
+    }
+
+    private void clearTargetAreaWalkIfNeeded()
+    {
+        if (!walkingToTargetArea)
+        {
+            return;
+        }
+
+        Rs2Walker.clearWalkingRoute("ksp_account_builder_firemaking_reached_area");
+        walkingToTargetArea = false;
+    }
+
+    private void useCampfire(int targetLogId, WorldPoint fireLocation)
+    {
+        if (fireLocation == null)
+        {
+            debug("Cannot use campfire; fire location is null");
+            return;
+        }
+
+        if (Rs2Player.distanceTo(fireLocation) > CAMPFIRE_DISTANCE)
+        {
+            Microbot.status = "Walking to campfire";
+            debug("Walking to campfire | player={} fire={} distance={}", Rs2Player.getWorldLocation(), fireLocation, Rs2Player.distanceTo(fireLocation));
+            Rs2Walker.walkTo(fireLocation, CAMPFIRE_DISTANCE);
+            return;
+        }
+
+        if (isWaitingForFireStart())
+        {
+            return;
+        }
+
+        if (!isIdleInTargetArea())
+        {
+            KspTaskDebug.throttled(log, debugLogging, "Firemaking", "not-idle", 2_000L,
+                    "waiting for idle before fire interaction | player={} moving={} animating={} interacting={} area={}",
+                    Rs2Player.getWorldLocation(),
+                    Rs2Player.isMoving(),
+                    Rs2Player.isAnimating(),
+                    Rs2Player.isInteracting(),
+                    targetArea.getDisplayName());
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+
+        if (now - lastFireInteractAtMs < FIRE_INTERACT_COOLDOWN_MS)
+        {
+            return;
+        }
+
+        Rs2TileObjectModel fireTile = findFireObjectAtLocation(fireLocation);
+
+        if (fireTile == null || !isValidFireId(fireTile.getId()))
+        {
+            debug("No valid fire tile at location | location={} tile={} targetLogId={}", fireLocation, fireTile, targetLogId);
+            return;
+        }
+
+        boolean interacted;
+
+        if (fireTile.getId() == FORESTERS_CAMPFIRE_ID)
+        {
+            debug("Attempting Forester campfire interaction | id={} loc={} action=Tend-to player={} targetLogId={}",
+                    fireTile.getId(),
+                    fireLocation,
+                    Rs2Player.getWorldLocation(),
+                    targetLogId);
+            interacted = fireTile.click("Tend-to");
+        }
+        else
+        {
+            debug("Attempting fire item-on-object | id={} loc={} targetLogId={} player={}",
+                    fireTile.getId(),
+                    fireLocation,
+                    targetLogId,
+                    Rs2Player.getWorldLocation());
+            interacted = Rs2Inventory.interact(targetLogId, "Use");
+            if (interacted)
+            {
+                sleep(150);
+                interacted = fireTile.click("Use");
+            }
+        }
+
+        debug("Fire interaction result | clicked={} fireId={} loc={} player={} moving={} animating={} interacting={} burnPromptOpen={}",
+                interacted,
+                fireTile.getId(),
+                fireLocation,
+                Rs2Player.getWorldLocation(),
+                Rs2Player.isMoving(),
+                Rs2Player.isAnimating(),
+                Rs2Player.isInteracting(),
+                isBurnPromptOpen());
+
+        if (!interacted)
+        {
+            return;
+        }
+
+        lastFireInteractAtMs = now;
+        awaitingFireStartAtMs = now;
+
+        boolean promptOpened = sleepUntil(() -> !Rs2Player.isMoving() && isBurnPromptOpen(), 5_000);
+        debug("Fire post-click wait | promptOpened={} moving={} animating={} interacting={} burnPromptOpen={}",
+                promptOpened,
+                Rs2Player.isMoving(),
+                Rs2Player.isAnimating(),
+                Rs2Player.isInteracting(),
+                isBurnPromptOpen());
+    }
+
+    private void buildFire(String targetLogName)
+    {
+        if (!Rs2Inventory.hasItem(TINDERBOX_NAME))
+        {
+            debug("Missing tinderbox for fallback firemaking");
+            return;
+        }
+
+        if (isWaitingForFireStart())
+        {
+            return;
+        }
+
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        WorldArea area = targetArea.toWorldArea();
+
+        if (playerLocation == null || !isIdleInTargetArea())
+        {
+            return;
+        }
+
+        if (!area.contains(playerLocation))
+        {
+            Microbot.status = "Walking to firemaking area";
+            Rs2Walker.walkTo(targetArea.getRandomPoint(), 2);
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+
+        if (now - lastFireInteractAtMs < FIRE_INTERACT_COOLDOWN_MS)
+        {
+            return;
+        }
+
+        Rs2Inventory.combine(TINDERBOX_NAME, targetLogName);
+        debug("Attempting tinderbox/log combine | tinderbox={} log={} player={}", TINDERBOX_NAME, targetLogName, Rs2Player.getWorldLocation());
+
+        lastFireInteractAtMs = now;
+        awaitingFireStartAtMs = now;
+        expectingFiremakingXpDrop = true;
+
+        sleepUntil(() -> Rs2Player.isAnimating() || Rs2Player.isInteracting(), FIRE_START_GRACE_MS);
+    }
+
+    private boolean handleBurnPrompt(String targetLogName, int targetLogId)
+    {
+        if (!isBurnPromptOpen())
+        {
+            return false;
+        }
+
+        if (Rs2Player.isMoving())
+        {
+            return true;
+        }
+
+        boolean selectedProduct = selectBurnProduct(targetLogName, targetLogId);
+        debug("Burn prompt handled | targetLog={} targetId={} selectedProduct={} promptStillOpen={}",
+                targetLogName,
+                targetLogId,
+                selectedProduct,
+                isBurnPromptOpen());
+
+        if (!selectedProduct)
+        {
+            debug("Failed to select burn product {}, trying space", targetLogName);
+            Rs2Keyboard.keyPress(KeyEvent.VK_SPACE);
+        }
+        else if (isBurnPromptOpen())
+        {
+            Rs2Keyboard.keyPress(KeyEvent.VK_SPACE);
+        }
+
+        awaitingFireStartAtMs = System.currentTimeMillis();
+        expectingFiremakingXpDrop = true;
+
+        sleepUntil(() -> Rs2Player.isAnimating() || Rs2Player.isInteracting() || !isBurnPromptOpen(), 2_000);
+
+        return true;
+    }
+
+    private boolean selectBurnProduct(String targetLogName, int targetLogId)
+    {
+        if (Rs2Widget.handleProcessingInterface(targetLogName))
+        {
+            debug("Selected burn product via processing helper | targetLog={}", targetLogName);
+            sleep(150);
+            return true;
+        }
+
+        Widget productWidget = findProductionWidgetByItemId(targetLogId);
+
+        if (productWidget != null && Rs2Widget.clickWidget(productWidget))
+        {
+            debug("Selected burn product by item widget | targetLog={} targetId={} widgetId={}",
+                    targetLogName,
+                    targetLogId,
+                    productWidget.getId());
+            sleep(150);
+            return true;
+        }
+
+        boolean selected = Rs2Widget.clickWidget(targetLogName, Optional.of(270), 13, false)
+                || Rs2Widget.clickWidget(targetLogName, true)
+                || Rs2Widget.clickWidget(targetLogName, false);
+
+        if (selected)
+        {
+            debug("Selected burn product by text fallback | targetLog={} targetId={}", targetLogName, targetLogId);
+            sleep(150);
+        }
+
+        return selected;
+    }
+
+    private Widget findProductionWidgetByItemId(int itemId)
+    {
+        return Microbot.getClientThread().runOnClientThreadOptional(() ->
+        {
+            Widget productionRoot = Rs2Widget.getWidget(270, 0);
+
+            if (productionRoot == null)
+            {
+                return null;
+            }
+
+            return findChildWidgetByItemId(productionRoot, itemId);
+        }).orElse(null);
+    }
+
+    private Widget findChildWidgetByItemId(Widget widget, int itemId)
+    {
+        if (widget == null || widget.isHidden())
+        {
+            return null;
+        }
+
+        if (widget.getItemId() == itemId)
+        {
+            return widget;
+        }
+
+        Widget found = findChildWidgetByItemId(widget.getDynamicChildren(), itemId);
+        if (found != null)
+        {
+            return found;
+        }
+
+        found = findChildWidgetByItemId(widget.getStaticChildren(), itemId);
+        if (found != null)
+        {
+            return found;
+        }
+
+        return findChildWidgetByItemId(widget.getNestedChildren(), itemId);
+    }
+
+    private Widget findChildWidgetByItemId(Widget[] widgets, int itemId)
+    {
+        if (widgets == null)
+        {
+            return null;
+        }
+
+        for (Widget widget : widgets)
+        {
+            Widget found = findChildWidgetByItemId(widget, itemId);
+            if (found != null)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    private boolean isBurnPromptOpen()
+    {
+        return Rs2Widget.findWidget(BURN_PROMPT_TEXT, null, false) != null;
+    }
+
+    private boolean isWaitingForFireStart()
+    {
+        if (awaitingFireStartAtMs == 0L)
+        {
+            return false;
+        }
+
+        if (Rs2Player.isAnimating() || Rs2Player.isInteracting())
+        {
+            return true;
+        }
+
+        long elapsed = System.currentTimeMillis() - awaitingFireStartAtMs;
+
+        if (elapsed < FIRE_START_GRACE_MS)
+        {
+            return true;
+        }
+
+        awaitingFireStartAtMs = 0L;
+        return false;
+    }
+
+    private boolean isIdleInTargetArea()
+    {
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        return playerLocation != null
+                && targetArea.toWorldArea().contains(playerLocation)
+                && !Rs2Player.isMoving()
+                && !Rs2Player.isAnimating()
+                && !Rs2Player.isInteracting();
+    }
+
+    private WorldPoint findActiveFireLocationInTargetArea()
+    {
+        Rs2TileObjectModel fire = Microbot.getClientThread().invoke(() -> Microbot.getRs2TileObjectCache().query()
+                .fromWorldView()
+                .within(getAreaCenter(), getAreaSearchRadius())
+                .where(object -> object.getWorldLocation() != null
+                        && targetArea.toWorldArea().contains(object.getWorldLocation())
+                        && isValidFireId(object.getId()))
+                .nearest(getAreaCenter(), getAreaSearchRadius()));
+
+        return fire != null ? fire.getWorldLocation() : null;
+    }
+
+    private Rs2TileObjectModel findFireObjectAtLocation(WorldPoint location)
+    {
+        if (location == null)
+        {
+            return null;
+        }
+
+        return Microbot.getClientThread().invoke(() -> Microbot.getRs2TileObjectCache().query()
+                .fromWorldView()
+                .where(object -> object.getWorldLocation() != null
+                        && location.equals(object.getWorldLocation())
+                        && isValidFireId(object.getId()))
+                .first());
+    }
+
+    private boolean isValidFireId(int objectId)
+    {
+        return objectId == NORMAL_FIRE_ID || objectId == FORESTERS_CAMPFIRE_ID;
+    }
+
+    private WorldPoint getAreaCenter()
+    {
+        int centerX = (targetArea.getSouthWest().getX() + targetArea.getNorthEast().getX()) / 2;
+        int centerY = (targetArea.getSouthWest().getY() + targetArea.getNorthEast().getY()) / 2;
+        int plane = targetArea.getSouthWest().getPlane();
+
+        return new WorldPoint(centerX, centerY, plane);
+    }
+
+    private int getAreaSearchRadius()
+    {
+        return Math.max(
+                Math.abs(targetArea.getNorthEast().getX() - targetArea.getSouthWest().getX()),
+                Math.abs(targetArea.getNorthEast().getY() - targetArea.getSouthWest().getY())) + 4;
+    }
+
+    private void debug(String message, Object... args)
+    {
+        if (debugLogging)
+        {
+            KspTaskDebug.info(log, true, "Firemaking", message, args);
+        }
+    }
+
+    private int getTargetLogId(String targetLogName)
+    {
+        if (LogsLvl.OAK_LOGS.getDisplayName().equalsIgnoreCase(targetLogName))
+        {
+            return 1521;
+        }
+
+        if (LogsLvl.WILLOW_LOGS.getDisplayName().equalsIgnoreCase(targetLogName))
+        {
+            return 1519;
+        }
+
+        return 1511;
+    }
+
+    @Override
+    public void shutdown()
+    {
+        lastWebWalkAtMs = 0L;
+        lastFireInteractAtMs = 0L;
+        awaitingFireStartAtMs = 0L;
+        expectingFiremakingXpDrop = false;
+        walkingToTargetArea = false;
+
+        super.shutdown();
+    }
+
+    public FireArea getTargetArea()
+    {
+        return targetArea;
+    }
+}
