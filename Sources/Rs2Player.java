@@ -67,7 +67,9 @@ public class Rs2Player {
     public static int moonlightTime = -1;
     public static Instant lastAnimationTime = null;
     private static final long COMBAT_TIMEOUT_MS = 10000;
+    private static final long INTERACTION_STALE_MS = 2500;
     private static long lastCombatTime = 0;
+    private static long lastRealInteractionTime = 0;
     @Getter
     public static int lastAnimationID = AnimationID.IDLE;
 
@@ -373,15 +375,21 @@ public class Rs2Player {
     /**
      * Checks if the player is currently idle.
      *
-     * @return {@code true} if the player is not moving, not animating, and has no active interaction target.
+     * <p>Do not trust {@link Actor#getInteracting()} by itself. RuneLite/OSRS can keep the
+     * previous interacting actor reference around for a short time after the action has ended.
+     * This method therefore only treats an interaction as active when it still looks meaningful,
+     * then lets stale interaction references expire after {@link #INTERACTION_STALE_MS}.</p>
+     *
+     * @return {@code true} if the player is not moving, not animating, and has no recent valid interaction activity.
      */
     public static boolean isIdle() {
         return Microbot.getClientThread().runOnClientThreadOptional(() -> {
-            if (Microbot.getClient() == null) {
+            Client client = Microbot.getClient();
+            if (client == null) {
                 return true;
             }
 
-            Player localPlayer = Microbot.getClient().getLocalPlayer();
+            Player localPlayer = client.getLocalPlayer();
             if (localPlayer == null) {
                 return true;
             }
@@ -390,13 +398,57 @@ public class Rs2Player {
                     && Duration.between(lastAnimationTime, Instant.now()).toMillis() < 600;
             boolean animating = recentlyAnimated || localPlayer.getAnimation() != AnimationID.IDLE;
             boolean moving = localPlayer.getPoseAnimation() != localPlayer.getIdlePoseAnimation();
-            Actor interactingActor = localPlayer.getInteracting();
-            boolean hasInteractionTarget = interactingActor != null
-                    && interactingActor.getWorldLocation() != null
-                    && (!(interactingActor instanceof NPC) || !((NPC) interactingActor).isDead());
 
-            return !moving && !animating && !hasInteractionTarget;
+            Actor interactingActor = localPlayer.getInteracting();
+            boolean validInteractionTarget = isValidInteractionTarget(interactingActor);
+            boolean meaningfulInteraction = isMeaningfulInteraction(localPlayer, interactingActor, moving, animating);
+
+            if (validInteractionTarget && meaningfulInteraction) {
+                lastRealInteractionTime = System.currentTimeMillis();
+            }
+
+            boolean recentlyInteracting = validInteractionTarget
+                    && System.currentTimeMillis() - lastRealInteractionTime < INTERACTION_STALE_MS;
+
+            return !moving && !animating && !recentlyInteracting;
         }).orElse(true);
+    }
+
+    /**
+     * Checks if an interaction target is still valid.
+     *
+     * <p>This removes the most common stale targets, especially dead NPCs, while still allowing
+     * player interactions and live NPC interactions to be treated as valid.</p>
+     */
+    private static boolean isValidInteractionTarget(Actor actor) {
+        if (actor == null || actor.getWorldLocation() == null) {
+            return false;
+        }
+
+        if (actor instanceof NPC) {
+            NPC npc = (NPC) actor;
+            return !npc.isDead() && npc.getHealthRatio() != 0;
+        }
+
+        return true;
+    }
+
+    /**
+     * Checks whether the current interaction should refresh the interaction timer.
+     *
+     * <p>Movement and animation are the strongest signals. Health bars are also treated as
+     * meaningful because combat has delays between attack animations.</p>
+     */
+    private static boolean isMeaningfulInteraction(Player localPlayer, Actor interactingActor, boolean moving, boolean animating) {
+        if (moving || animating) {
+            return true;
+        }
+
+        if (localPlayer.getHealthRatio() != -1) {
+            return true;
+        }
+
+        return interactingActor != null && interactingActor.getHealthRatio() > 0;
     }
 
     /**
@@ -1902,7 +1954,28 @@ public class Rs2Player {
         Optional<Actor> result = Microbot.getClientThread().runOnClientThreadOptional(() -> {
             if (Microbot.getClient() == null || Microbot.getClient().getLocalPlayer() == null) return null;
 
-            var interactingActor = Microbot.getClient().getLocalPlayer().getInteracting();
+            Player localPlayer = Microbot.getClient().getLocalPlayer();
+            Actor interactingActor = localPlayer.getInteracting();
+
+            if (!isValidInteractionTarget(interactingActor)) {
+                return null;
+            }
+
+            boolean recentlyAnimated = lastAnimationTime != null
+                    && Duration.between(lastAnimationTime, Instant.now()).toMillis() < 600;
+            boolean animating = recentlyAnimated || localPlayer.getAnimation() != AnimationID.IDLE;
+            boolean moving = localPlayer.getPoseAnimation() != localPlayer.getIdlePoseAnimation();
+
+            if (isMeaningfulInteraction(localPlayer, interactingActor, moving, animating)) {
+                lastRealInteractionTime = System.currentTimeMillis();
+            }
+
+            boolean recentlyInteracting =
+                    System.currentTimeMillis() - lastRealInteractionTime < INTERACTION_STALE_MS;
+
+            if (!recentlyInteracting) {
+                return null;
+            }
 
             if (interactingActor instanceof net.runelite.api.NPC) {
                 return new Rs2NpcModel((NPC) interactingActor);
