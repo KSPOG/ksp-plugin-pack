@@ -559,7 +559,7 @@ public class Rs2Player {
      * @return {@code true} if the player logged out, {@code false} otherwise.
      */
     public static boolean logoutIfPlayerDetected(int amountOfPlayers, int time, int distance) {
-        List<Rs2PlayerModel> players = getPlayers(player -> true).collect(Collectors.toList());
+        List<Rs2PlayerModel> players = getCachedPlayers(false);
         long currentTime = System.currentTimeMillis();
 
         if (distance > 0) {
@@ -628,7 +628,7 @@ public class Rs2Player {
      * @return {@code true} if the player detected and successfully hopped worlds, {@code false} otherwise.
      */
     public static boolean hopIfPlayerDetected(int amountOfPlayers, int time, int distance) {
-        List<Rs2PlayerModel> players = getPlayers(player -> true).collect(Collectors.toList());
+        List<Rs2PlayerModel> players = getCachedPlayers(false);
         long currentTime = System.currentTimeMillis();
 
         if (distance > 0) {
@@ -762,7 +762,7 @@ public class Rs2Player {
      * @param predicate A condition to filter players (optional).
      * @return A stream of Rs2PlayerModel objects representing nearby players.
      */
-    @Deprecated(since = "2.1.0 - Use Rs2PlayerCache/Rs2PlayerQueryable", forRemoval = true)
+    @Deprecated(since = "2.1.0 - Use Microbot.getRs2PlayerCache().query()/getStream()", forRemoval = true)
     public static Stream<Rs2PlayerModel> getPlayers(Predicate<Rs2PlayerModel> predicate) {
         return getPlayers(predicate, false);
     }
@@ -774,18 +774,63 @@ public class Rs2Player {
      * @param includeLocalPlayer a flag on whether to include the local player within the stream
      * @return A stream of Rs2PlayerModel objects representing nearby players.
      */
-    @Deprecated(since = "2.1.0 - Use Rs2PlayerCache/Rs2PlayerQueryable", forRemoval = true)
+    @Deprecated(since = "2.1.0 - Use Microbot.getRs2PlayerCache().query()/getStream()", forRemoval = true)
     public static Stream<Rs2PlayerModel> getPlayers(Predicate<Rs2PlayerModel> predicate, boolean includeLocalPlayer) {
-        List<Rs2PlayerModel> players = Optional.of(Microbot.getClient().getTopLevelWorldView().players()
-                .stream()
-                .filter(Objects::nonNull)
-                .map(Rs2PlayerModel::new)
-                .filter(x -> includeLocalPlayer || x.getPlayer() != Microbot.getClient().getLocalPlayer())
-                .filter(predicate)
-                .collect(Collectors.toList())
-        ).orElse(new ArrayList<>());
+        return getCachedPlayers(includeLocalPlayer).stream()
+                .filter(predicate);
+    }
 
-        return players.stream();
+    private static List<Rs2PlayerModel> getCachedPlayers(boolean includeLocalPlayer) {
+        return Microbot.getClientThread().runOnClientThreadOptional(() -> {
+            Client client = Microbot.getClient();
+            if (client == null || client.getLocalPlayer() == null || Microbot.getRs2PlayerCache() == null) {
+                return Collections.<Rs2PlayerModel>emptyList();
+            }
+
+            Player localPlayer = client.getLocalPlayer();
+
+            /*
+             * Latest Microbot API:
+             * - Do not pull players directly from Client/WorldView.
+             * - Use Microbot.getRs2PlayerCache().getStream() or .query().
+             *
+             * This util class keeps the legacy util.player.Rs2PlayerModel return type for
+             * backwards compatibility, so cached API player models are unwrapped back to Player
+             * and wrapped into the existing util model where needed.
+             */
+            return Microbot.getRs2PlayerCache()
+                    .getStream()
+                    .filter(Objects::nonNull)
+                    .map(Rs2Player::toLegacyPlayerModel)
+                    .filter(Objects::nonNull)
+                    .filter(player -> includeLocalPlayer || player.getPlayer() != localPlayer)
+                    .collect(Collectors.toList());
+        }).orElse(Collections.emptyList());
+    }
+
+    /**
+     * Converts the latest cache-backed API player model into this utility class' legacy
+     * {@link Rs2PlayerModel} wrapper without exposing a breaking return type change.
+     */
+    private static Rs2PlayerModel toLegacyPlayerModel(Object cachedPlayer) {
+        if (cachedPlayer == null) {
+            return null;
+        }
+
+        if (cachedPlayer instanceof Rs2PlayerModel) {
+            return (Rs2PlayerModel) cachedPlayer;
+        }
+
+        if (cachedPlayer instanceof net.runelite.client.plugins.microbot.api.player.models.Rs2PlayerModel) {
+            Player player = ((net.runelite.client.plugins.microbot.api.player.models.Rs2PlayerModel) cachedPlayer).getPlayer();
+            return player == null ? null : new Rs2PlayerModel(player);
+        }
+
+        if (cachedPlayer instanceof Player) {
+            return new Rs2PlayerModel((Player) cachedPlayer);
+        }
+
+        return null;
     }
 
     /**
@@ -798,7 +843,8 @@ public class Rs2Player {
      */
     @Deprecated(since = "2.1.0 - Use Rs2PlayerCache/Rs2PlayerQueryable", forRemoval = true)
     public static Rs2PlayerModel getPlayer(String playerName, boolean exact) {
-        return getPlayers(player -> {
+        return getCachedPlayers(false).stream()
+                .filter(player -> {
             String name = player.getName();
             if (name == null) return false;
             return exact ? name.equalsIgnoreCase(playerName) : name.toLowerCase().contains(playerName.toLowerCase());
@@ -824,7 +870,9 @@ public class Rs2Player {
      */
     @Deprecated(since = "2.1.0 - Use Rs2PlayerCache/Rs2PlayerQueryable", forRemoval = true)
     public static List<Rs2PlayerModel> getPlayersInCombat() {
-        return getPlayers(player -> player.getHealthRatio() != -1).collect(Collectors.toList());
+        return getCachedPlayers(false).stream()
+                .filter(player -> player.getHealthRatio() != -1)
+                .collect(Collectors.toList());
     }
 
     /**
@@ -963,14 +1011,30 @@ public class Rs2Player {
     }
 
     /**
-     * Updates the last combat time when the player engages in or is hit during combat.
+     * Updates the last combat time only when there is a real combat signal.
+     *
+     * <p>Do not refresh combat state just because the local player exists.
+     * RuneLite/OSRS can keep stale interaction references around after combat ends,
+     * so this method requires a meaningful combat signal before extending the timer.</p>
      */
     public static void updateCombatTime() {
         Microbot.getClientThread().runOnClientThreadOptional(() -> {
-            Player localPlayer = Microbot.getClient().getLocalPlayer();
-            if (localPlayer != null) {
+            Client client = Microbot.getClient();
+            if (client == null) {
+                lastCombatTime = 0;
+                return null;
+            }
+
+            Player localPlayer = client.getLocalPlayer();
+            if (localPlayer == null) {
+                lastCombatTime = 0;
+                return null;
+            }
+
+            if (hasActiveCombatSignal(localPlayer)) {
                 lastCombatTime = System.currentTimeMillis();
             }
+
             return null;
         });
     }
@@ -980,16 +1044,101 @@ public class Rs2Player {
      * @return The local player wrapped in an {@link Rs2PlayerModel}.
      */
     public static Rs2PlayerModel getLocalPlayer() {
-        return getPlayers(player -> player.getId() == Microbot.getClient().getLocalPlayer().getId(), true).findFirst().orElse(null);
+        Player localPlayer = Microbot.getClientThread().runOnClientThreadOptional(() -> {
+            Client client = Microbot.getClient();
+            return client == null ? null : client.getLocalPlayer();
+        }).orElse(null);
+
+        return localPlayer == null ? null : new Rs2PlayerModel(localPlayer);
     }
 
     /**
-     * Checks if the player is in combat based on recent activity.
+     * Checks if the player is in combat based on recent real combat activity.
      *
-     * @return True if the player is in combat, false otherwise.
+     * <p>This method also samples the current local player state. If a live combat
+     * signal is still visible, it refreshes the timeout. If the timeout has expired,
+     * it clears {@link #lastCombatTime} so stale combat state cannot remain active.</p>
+     *
+     * @return {@code true} if the player is in combat, {@code false} otherwise.
      */
     public static boolean isInCombat() {
-        return System.currentTimeMillis() - lastCombatTime < COMBAT_TIMEOUT_MS;
+        return Microbot.getClientThread().runOnClientThreadOptional(() -> {
+            Client client = Microbot.getClient();
+            if (client == null) {
+                lastCombatTime = 0;
+                return false;
+            }
+
+            Player localPlayer = client.getLocalPlayer();
+            if (localPlayer == null) {
+                lastCombatTime = 0;
+                return false;
+            }
+
+            long now = System.currentTimeMillis();
+
+            if (hasActiveCombatSignal(localPlayer)) {
+                lastCombatTime = now;
+                return true;
+            }
+
+            if (lastCombatTime <= 0 || now - lastCombatTime >= COMBAT_TIMEOUT_MS) {
+                lastCombatTime = 0;
+                return false;
+            }
+
+            return true;
+        }).orElse(false);
+    }
+
+    /**
+     * Detects whether the local player currently has a meaningful combat signal.
+     *
+     * <p>Signals used:</p>
+     * <ul>
+     *     <li>The local player's health bar is visible.</li>
+     *     <li>The interacting actor is actively interacting back with the local player.</li>
+     *     <li>The local player is attacking/animating while a valid target exists.</li>
+     *     <li>The target has a visible health bar while the local player recently animated.</li>
+     * </ul>
+     */
+    private static boolean hasActiveCombatSignal(Player localPlayer) {
+        if (localPlayer == null) {
+            return false;
+        }
+
+        Actor interactingActor = localPlayer.getInteracting();
+        boolean validCombatTarget = isValidCombatTarget(interactingActor);
+
+        boolean localHealthBarVisible = localPlayer.getHealthRatio() != -1;
+        boolean targetInteractingWithLocal = validCombatTarget && interactingActor.getInteracting() == localPlayer;
+
+        boolean recentlyAnimated = lastAnimationTime != null
+                && Duration.between(lastAnimationTime, Instant.now()).toMillis() < 1200;
+        boolean localAnimating = recentlyAnimated || localPlayer.getAnimation() != AnimationID.IDLE;
+
+        boolean targetHealthBarVisible = validCombatTarget && interactingActor.getHealthRatio() > 0;
+
+        return localHealthBarVisible
+                || targetInteractingWithLocal
+                || (validCombatTarget && localAnimating)
+                || (targetHealthBarVisible && localAnimating);
+    }
+
+    /**
+     * Checks whether an actor can still be considered a valid combat target.
+     */
+    private static boolean isValidCombatTarget(Actor actor) {
+        if (actor == null || actor.getWorldLocation() == null) {
+            return false;
+        }
+
+        if (actor instanceof NPC) {
+            NPC npc = (NPC) actor;
+            return !npc.isDead() && npc.getHealthRatio() != 0;
+        }
+
+        return actor instanceof Player || actor.getHealthRatio() > 0;
     }
 
     /**
@@ -1016,7 +1165,8 @@ public class Rs2Player {
         int localMinCombatLevel = Math.max(3, localCombatLevel - localWildernessLevel);
         int localMaxCombatLevel = Math.min(126, localCombatLevel + localWildernessLevel);
 
-        return getPlayers(player -> {
+        return getCachedPlayers(false).stream()
+                .filter(player -> {
             int playerCombatLevel = player.getCombatLevel();
             int playerWildernessLevel = Rs2Pvp.getWildernessLevelFrom(player.getWorldLocation());
 
