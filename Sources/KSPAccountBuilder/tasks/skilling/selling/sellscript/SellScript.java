@@ -45,6 +45,7 @@ import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.levelreqmining.MiningReq;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.gearea.GEArea;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.sell.SellList;
@@ -57,7 +58,6 @@ import net.runelite.client.plugins.microbot.util.grandexchange.Rs2GrandExchange;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2ItemModel;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
-import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
 import net.runelite.client.plugins.microbot.util.widget.Rs2Widget;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -111,6 +111,9 @@ extends Script {
                 Microbot.status = "GE Sell Complete";
                 return;
             }
+            if (this.completeIfBankHasNothingToSell()) {
+                return;
+            }
             this.updateState();
             KspTaskDebug.throttled(log, this.debugLogging, "GE Sell", "loop", 5_000L,
                     "loop | state={} complete={} player={} moving={} interacting={} bankOpen={} geOpen={} offerScreen={} slots={} hasInvSellable={} hasBankSellable={} blockedItems={}",
@@ -151,22 +154,42 @@ extends Script {
         return true;
     }
 
+    private boolean completeIfBankHasNothingToSell() {
+        if (!Rs2Bank.isOpen()) {
+            return false;
+        }
+
+        if (this.hasSellableInventoryItems() || this.hasSellableBankItems()) {
+            return false;
+        }
+
+        this.complete = true;
+        this.state = SellState.GOING_TO_GE;
+        Microbot.status = "GE Sell Skipped";
+        this.debug("Skipping GE sell; bank contains no sellable items | blockedItems={}", this.blockedSellItems);
+        return true;
+    }
+
     private boolean ensureInTargetArea() {
         if (this.targetArea.toWorldArea().contains(Rs2Player.getWorldLocation())) {
+            KspWalkerGuard.clear("GE Sell:target-area");
             return true;
         }
         if (Rs2Player.isMoving()) {
             return false;
         }
-        long now = System.currentTimeMillis();
-        if (now - this.lastWebWalkAtMs < 3000L) {
-            return false;
-        }
-        this.lastWebWalkAtMs = now;
         Microbot.status = "Walking to GE";
-        WorldPoint walkTarget = this.targetArea.getRandomPoint();
-        this.debug("Walking to GE for sell task | player={} target={} area={}", Rs2Player.getWorldLocation(), walkTarget, this.targetArea.getDisplayName());
-        Rs2Walker.walkTo(walkTarget, 2);
+        if (KspWalkerGuard.walkToDestination(
+                "GE Sell:target-area",
+                this.targetArea::getRandomPoint,
+                this.targetArea.toWorldArea()::contains,
+                2,
+                WEB_WALK_COOLDOWN_MS)) {
+            this.lastWebWalkAtMs = System.currentTimeMillis();
+            this.debug("Requested GE sell area walk | player={} area={}",
+                    Rs2Player.getWorldLocation(),
+                    this.targetArea.getDisplayName());
+        }
         return false;
     }
 
@@ -611,6 +634,7 @@ extends Script {
         this.lastTradeRestrictionCheckAtMs = 0L;
         this.attemptedHoursPlayedLookup = false;
         this.complete = false;
+        KspWalkerGuard.clear("GE Sell:target-area");
         super.shutdown();
     }
 

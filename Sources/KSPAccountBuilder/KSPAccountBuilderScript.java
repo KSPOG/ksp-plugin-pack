@@ -62,6 +62,11 @@ public class KspAccountBuilderScript extends Script
     private static final int HAMMER_ITEM_ID = SmithTool.HAMMER.getItemId();
     private static final String TINDERBOX_NAME = "Tinderbox";
     private static final String COINS_NAME = "Coins";
+    private static final String COPPER_ORE_NAME = "Copper ore";
+    private static final String TIN_ORE_NAME = "Tin ore";
+    private static final int TARGET_SMITHING_LEVEL = 15;
+    private static final int TARGET_SMITHING_XP = 2411;
+    private static final double BRONZE_BAR_SMITHING_XP = 6.2D;
     private static final int[] SAFE_F2P_LOGIN_WORLDS = {301, 308, 316, 326, 335};
 
     private enum BuilderTask
@@ -731,7 +736,7 @@ public class KspAccountBuilderScript extends Script
 
     private boolean hasAnyGeBuyResourcesAvailable()
     {
-        return isToolUpgradeMissingAnywhere();
+        return isToolUpgradeMissingAnywhere() || isSmithingOreBuyMissingAnywhere();
     }
 
     private boolean hasAnySellListItemsAvailable()
@@ -770,6 +775,30 @@ public class KspAccountBuilderScript extends Script
                 || !hasToolAnywhere(desiredAxe)
                 || !hasHammerWithRequiredIdAnywhere()
                 || !hasTinderboxAnywhere();
+    }
+
+    private boolean isSmithingOreBuyMissingAnywhere()
+    {
+        int currentSmithingLevel = Microbot.getClient().getRealSkillLevel(Skill.SMITHING);
+        int currentSmithingXp = Microbot.getClient().getSkillExperience(Skill.SMITHING);
+
+        if (currentSmithingLevel >= TARGET_SMITHING_LEVEL || currentSmithingXp >= TARGET_SMITHING_XP)
+        {
+            return false;
+        }
+
+        int xpRemaining = TARGET_SMITHING_XP - currentSmithingXp;
+        int requiredBronzeBars = (int) Math.ceil(xpRemaining / BRONZE_BAR_SMITHING_XP);
+
+        return countItemAnywhere(COPPER_ORE_NAME) < requiredBronzeBars
+                || countItemAnywhere(TIN_ORE_NAME) < requiredBronzeBars;
+    }
+
+    private int countItemAnywhere(String itemName)
+    {
+        return Rs2Inventory.count(itemName)
+                + Rs2Inventory.count(itemName, true)
+                + Math.max(0, Rs2Bank.count(itemName));
     }
 
     private boolean hasAnyOutdatedToolAvailable()

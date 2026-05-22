@@ -8,7 +8,6 @@
  *  net.runelite.client.plugins.microbot.Microbot
  *  net.runelite.client.plugins.microbot.Script
  *  net.runelite.client.plugins.microbot.util.bank.Rs2Bank
- *  net.runelite.client.plugins.microbot.util.gameobject.Rs2GameObject
  *  net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory
  *  net.runelite.client.plugins.microbot.util.keyboard.Rs2Keyboard
  *  net.runelite.client.plugins.microbot.util.player.Rs2Player
@@ -27,7 +26,9 @@ import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.tileobject.models.Rs2TileObjectModel;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smelting.barlevel.BarLevels;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smelting.oresreq.ReqOres;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smelting.smeltarea.SmeltArea;
@@ -165,6 +166,10 @@ extends Script {
         if (!Rs2Bank.isOpen()) {
             return false;
         }
+        if (!KspBankMode.ensureWithdrawAsItem()) {
+            this.debug("Waiting for withdraw-as-item mode before withdrawing ores for {}", bar.getDisplayName());
+            return false;
+        }
         Rs2Bank.depositAll();
         SmeltScript.sleep((int)250);
         int barsToWithdraw = this.getBarsToWithdrawForInventory(req);
@@ -268,15 +273,19 @@ extends Script {
         if (Rs2Player.isMoving()) {
             return false;
         }
-        long now = System.currentTimeMillis();
-        if (now - this.lastWebWalkAtMs < 3000L) {
-            return false;
+        if (KspWalkerGuard.walkToDestination(
+                "Smelting:target-area",
+                this.targetArea::getRandomPoint,
+                this.targetArea.toWorldArea()::contains,
+                2,
+                WEB_WALK_COOLDOWN_MS)) {
+            this.lastWebWalkAtMs = System.currentTimeMillis();
+            this.walkingToTargetArea = true;
+            this.debug("Requested smelting area walk | player={} walkerTarget={} area={}",
+                    Rs2Player.getWorldLocation(),
+                    Rs2Walker.getCurrentTarget(),
+                    this.targetArea.getDisplayName());
         }
-        WorldPoint walkTarget = this.targetArea.getRandomPoint();
-        this.lastWebWalkAtMs = now;
-        this.walkingToTargetArea = true;
-        this.debug("Walking to smelting area | player={} target={} area={}", Rs2Player.getWorldLocation(), walkTarget, this.targetArea.getDisplayName());
-        Rs2Walker.walkTo(walkTarget, 2);
         return false;
     }
 
@@ -285,6 +294,7 @@ extends Script {
             return;
         }
         Rs2Walker.clearWalkingRoute("ksp_account_builder_smelting_reached_area");
+        KspWalkerGuard.clear("Smelting:target-area");
         this.walkingToTargetArea = false;
     }
 
@@ -457,6 +467,7 @@ extends Script {
         this.awaitingSmeltStartAtMs = 0L;
         this.lastSmeltAnimationAtMs = 0L;
         this.walkingToTargetArea = false;
+        KspWalkerGuard.clear("Smelting:target-area");
         super.shutdown();
     }
 

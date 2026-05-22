@@ -16,7 +16,9 @@ import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.tileobject.models.Rs2TileObjectModel;
 import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.areas.Areas;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.equiplevels.PickaxeEquip;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.levelreqmining.MiningReq;
@@ -94,6 +96,7 @@ public class MiningScript extends Script
 
     private long lastWebWalkAtMs;
     private long lastObjectInteractionAtMs;
+    private long lastUnderAttackAtMs;
 
     public void setDebugLogging(boolean debugLogging)
     {
@@ -230,6 +233,12 @@ public class MiningScript extends Script
 
             if (Rs2Bank.isOpen() && Rs2Bank.count(activePickaxeName) > 0)
             {
+                if (!KspBankMode.ensureWithdrawAsItem())
+                {
+                    debug("Waiting for withdraw-as-item mode before withdrawing {}", activePickaxeName);
+                    return false;
+                }
+
                 String pickaxeToWithdraw = activePickaxeName;
 
                 Rs2Bank.withdrawOne(activePickaxeName);
@@ -373,18 +382,22 @@ public class MiningScript extends Script
             return false;
         }
 
-        long now = System.currentTimeMillis();
-        if (now - lastWebWalkAtMs < WEB_WALK_COOLDOWN_MS)
-        {
-            return false;
-        }
-
         Microbot.status = "Walking to " + targetArea.getDisplayName();
-        WorldPoint walkTarget = targetArea.getRandomPoint();
-        lastWebWalkAtMs = now;
-        walkingToTargetArea = true;
-        debug("Walking to mining area | player={} target={} area={}", playerLocation, walkTarget, targetArea.getDisplayName());
-        Rs2Walker.walkTo(walkTarget, 3);
+
+        if (KspWalkerGuard.walkToDestination(
+                "Mining:target-area",
+                targetArea::getRandomPoint,
+                area::contains,
+                3,
+                WEB_WALK_COOLDOWN_MS))
+        {
+            lastWebWalkAtMs = System.currentTimeMillis();
+            walkingToTargetArea = true;
+            debug("Requested mining area walk | player={} walkerTarget={} area={}",
+                    playerLocation,
+                    Rs2Walker.getCurrentTarget(),
+                    targetArea.getDisplayName());
+        }
 
         return false;
     }
@@ -399,6 +412,7 @@ public class MiningScript extends Script
         }
 
         Rs2Walker.clearWalkingRoute("ksp_account_builder_mining_reached_area");
+        KspWalkerGuard.clear("Mining:target-area");
         walkingToTargetArea = false;
     }
 
@@ -495,6 +509,24 @@ public class MiningScript extends Script
 
     private void mineForCurrentLevel(int miningLevel)
     {
+        // Check if player is under attack and handle combat state
+        if (isPlayerUnderAttack())
+        {
+            lastUnderAttackAtMs = System.currentTimeMillis();
+            KspTaskDebug.throttled(log, debugLogging, "Mining", "under-attack", 2_000L,
+                    "player is under attack, waiting for combat to end | player={} interacting={}",
+                    Rs2Player.getWorldLocation(),
+                    Rs2Player.isInteracting());
+            return;
+        }
+
+        // Reset combat timer if player is no longer under attack
+        if (System.currentTimeMillis() - lastUnderAttackAtMs < 5_000)
+        {
+            debug("Waiting for player to recover from combat");
+            return;
+        }
+
         if (!isIdleInTargetArea())
         {
             KspTaskDebug.throttled(log, debugLogging, "Mining", "not-idle", 2_000L,
@@ -585,6 +617,13 @@ public class MiningScript extends Script
                 && !Rs2Player.isMoving()
                 && !Rs2Player.isAnimating()
                 && !Rs2Player.isInteracting();
+    }
+
+    private boolean isPlayerUnderAttack()
+    {
+        // Check if the player is in combat with an NPC
+        // The player is considered under attack if they are interacting but not animating a skill
+        return Rs2Player.isInteracting() && !Rs2Player.isAnimating();
     }
 
     private Rs2TileObjectModel findNearestRockInTargetArea(int miningLevel)
@@ -901,8 +940,10 @@ public class MiningScript extends Script
         startingTargetRockInitialized = false;
         randomMidTierRock = null;
         walkingToTargetArea = false;
+        KspWalkerGuard.clear("Mining:target-area");
         lastWebWalkAtMs = 0L;
         lastObjectInteractionAtMs = 0L;
+        lastUnderAttackAtMs = 0L;
 
         super.shutdown();
     }

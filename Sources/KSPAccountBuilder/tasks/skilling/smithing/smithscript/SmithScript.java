@@ -26,7 +26,9 @@ import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.tileobject.models.Rs2TileObjectModel;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smithing.recipes.SmithRecipe;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smithing.smitharea.SmithArea;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smithing.smithlevels.SmithLevels;
@@ -196,6 +198,10 @@ extends Script {
         String hammerName = SmithTool.HAMMER.getDisplayName();
         String barName = this.getBarName(recipe);
         int hammerItemId = SmithTool.HAMMER.getItemId();
+        if (!KspBankMode.ensureWithdrawAsItem()) {
+            this.debug("Waiting for withdraw-as-item mode before preparing smithing inventory");
+            return false;
+        }
         if (this.hasHammerInInventory()) {
             Rs2Bank.depositAllExcept((Integer[])new Integer[]{hammerItemId});
         } else {
@@ -268,16 +274,20 @@ extends Script {
         if (Rs2Player.isMoving()) {
             return false;
         }
-        long now = System.currentTimeMillis();
-        if (now - this.lastWebWalkAtMs < 3000L) {
-            return false;
+        if (KspWalkerGuard.walkToDestination(
+                "Smithing:target-area",
+                this.targetArea::getRandomPoint,
+                this.targetArea.toWorldArea()::contains,
+                2,
+                WEB_WALK_COOLDOWN_MS)) {
+            this.lastWebWalkAtMs = System.currentTimeMillis();
+            this.lastWalkTarget = Rs2Walker.getCurrentTarget();
+            this.walkingToTargetArea = true;
+            this.debug("Requested smithing area walk | player={} walkerTarget={} area={}",
+                    Rs2Player.getWorldLocation(),
+                    this.lastWalkTarget,
+                    this.targetArea.getDisplayName());
         }
-        WorldPoint walkTarget = this.targetArea.getRandomPoint();
-        this.lastWebWalkAtMs = now;
-        this.lastWalkTarget = walkTarget;
-        this.walkingToTargetArea = true;
-        this.debug("Walking to smithing area | player={} target={} area={}", Rs2Player.getWorldLocation(), walkTarget, this.targetArea.getDisplayName());
-        Rs2Walker.walkTo(walkTarget, 2);
         return false;
     }
 
@@ -286,6 +296,7 @@ extends Script {
             return;
         }
         Rs2Walker.clearWalkingRoute("ksp_account_builder_smithing_reached_area");
+        KspWalkerGuard.clear("Smithing:target-area");
         this.walkingToTargetArea = false;
     }
 
@@ -328,7 +339,11 @@ extends Script {
             return;
         }
         if (Rs2Player.getWorldLocation().distanceTo(anvil.getWorldLocation()) > 6) {
-            Rs2Walker.walkFastCanvas((WorldPoint)anvil.getWorldLocation());
+            KspWalkerGuard.walkFastCanvasToPoint(
+                    "Smithing:anvil",
+                    (WorldPoint) anvil.getWorldLocation(),
+                    6,
+                    WEB_WALK_COOLDOWN_MS);
             return;
         }
         if (!this.isIdleInTargetArea()) {
@@ -529,6 +544,8 @@ extends Script {
         this.lastWalkTarget = null;
         this.expectingSmithXpDrop = false;
         this.walkingToTargetArea = false;
+        KspWalkerGuard.clear("Smithing:target-area");
+        KspWalkerGuard.clear("Smithing:anvil");
         super.shutdown();
     }
 

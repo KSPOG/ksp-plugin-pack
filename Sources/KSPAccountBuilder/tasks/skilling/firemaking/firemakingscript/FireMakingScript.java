@@ -12,7 +12,9 @@ import net.runelite.api.widgets.Widget;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.tileobject.models.Rs2TileObjectModel;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.fmarea.FireArea;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.loglevels.LogsLvl;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
@@ -224,6 +226,12 @@ public class FireMakingScript extends Script
                 return false;
             }
 
+            if (!KspBankMode.ensureWithdrawAsItem())
+            {
+                debug("Waiting for withdraw-as-item mode before withdrawing {}", TINDERBOX_NAME);
+                return false;
+            }
+
             if (!Rs2Bank.withdrawOne(TINDERBOX_NAME))
             {
                 return false;
@@ -235,6 +243,12 @@ public class FireMakingScript extends Script
         if (Rs2Bank.count(targetLogName) <= 0)
         {
             debug("No {} available in bank", targetLogName);
+            return false;
+        }
+
+        if (!KspBankMode.ensureWithdrawAsItem())
+        {
+            debug("Waiting for withdraw-as-item mode before withdrawing {}", targetLogName);
             return false;
         }
 
@@ -289,18 +303,22 @@ public class FireMakingScript extends Script
             return false;
         }
 
-        long now = System.currentTimeMillis();
-        if (now - lastWebWalkAtMs < WEB_WALK_COOLDOWN_MS)
-        {
-            return false;
-        }
-
-        WorldPoint walkTarget = targetArea.getRandomPoint();
-
         Microbot.status = "Walking to firemaking area";
-        lastWebWalkAtMs = now;
-        walkingToTargetArea = true;
-        Rs2Walker.walkTo(walkTarget, 2);
+
+        if (KspWalkerGuard.walkToDestination(
+                "Firemaking:target-area",
+                targetArea::getRandomPoint,
+                area::contains,
+                2,
+                WEB_WALK_COOLDOWN_MS))
+        {
+            lastWebWalkAtMs = System.currentTimeMillis();
+            walkingToTargetArea = true;
+            debug("Requested firemaking area walk | player={} walkerTarget={} area={}",
+                    playerLocation,
+                    Rs2Walker.getCurrentTarget(),
+                    targetArea.getDisplayName());
+        }
 
         return false;
     }
@@ -313,6 +331,7 @@ public class FireMakingScript extends Script
         }
 
         Rs2Walker.clearWalkingRoute("ksp_account_builder_firemaking_reached_area");
+        KspWalkerGuard.clear("Firemaking:target-area");
         walkingToTargetArea = false;
     }
 
@@ -324,11 +343,18 @@ public class FireMakingScript extends Script
             return;
         }
 
+        // Early return if burn prompt is already open - don't spam click
+        if (isBurnPromptOpen())
+        {
+            debug("Burn prompt already open, skipping campfire click");
+            return;
+        }
+
         if (Rs2Player.distanceTo(fireLocation) > CAMPFIRE_DISTANCE)
         {
             Microbot.status = "Walking to campfire";
             debug("Walking to campfire | player={} fire={} distance={}", Rs2Player.getWorldLocation(), fireLocation, Rs2Player.distanceTo(fireLocation));
-            Rs2Walker.walkTo(fireLocation, CAMPFIRE_DISTANCE);
+            KspWalkerGuard.walkToPoint("Firemaking:campfire", fireLocation, CAMPFIRE_DISTANCE, WEB_WALK_COOLDOWN_MS);
             return;
         }
 
@@ -361,6 +387,8 @@ public class FireMakingScript extends Script
         if (fireTile == null || !isValidFireId(fireTile.getId()))
         {
             debug("No valid fire tile at location | location={} tile={} targetLogId={}", fireLocation, fireTile, targetLogId);
+            // Reset waiting state if campfire is gone to prevent idle loop
+            awaitingFireStartAtMs = 0L;
             return;
         }
 
@@ -441,7 +469,12 @@ public class FireMakingScript extends Script
         if (!area.contains(playerLocation))
         {
             Microbot.status = "Walking to firemaking area";
-            Rs2Walker.walkTo(targetArea.getRandomPoint(), 2);
+            KspWalkerGuard.walkToDestination(
+                    "Firemaking:target-area",
+                    targetArea::getRandomPoint,
+                    area::contains,
+                    2,
+                    WEB_WALK_COOLDOWN_MS);
             return;
         }
 
@@ -712,6 +745,8 @@ public class FireMakingScript extends Script
         awaitingFireStartAtMs = 0L;
         expectingFiremakingXpDrop = false;
         walkingToTargetArea = false;
+        KspWalkerGuard.clear("Firemaking:target-area");
+        KspWalkerGuard.clear("Firemaking:campfire");
 
         super.shutdown();
     }

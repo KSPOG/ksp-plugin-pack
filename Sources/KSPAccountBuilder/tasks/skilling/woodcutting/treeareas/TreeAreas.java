@@ -21,7 +21,7 @@ public enum TreeAreas {
             new WorldPoint(3149, 3464, 0),
             new WorldPoint(3151, 3465, 0)
     }),
-    OAK_TREE_DRAYNOR("Oak Tree (Draynor)", new WorldPoint(3098, 3249, 0), new WorldPoint(3107, 3239, 0)),
+    OAK_TREE_DRAYNOR("Oak Tree (Draynor)", new WorldPoint(3109, 3250, 0), new WorldPoint(3098, 3237, 0)),
     WILLOW_TREES_DRAYNOR("Willows (Draynor)", new WorldPoint(3081, 3226, 0), new WorldPoint(3091, 3238, 0)),
     YEW_TREE_VARROCK_PALACE("Yew Tree (Varrock Palace)", new WorldPoint(3085, 3468, 0), new WorldPoint(3088, 3482, 0));
 

@@ -1,6 +1,8 @@
 /*
- * Decompiled with CFR 0.152.
- * 
+ * Updated MeleeScript.java
+ * GE offer timeout escalation uses Rs2GrandExchange.abortOffer(itemName, true)
+ * and Rs2GrandExchange.findSlotForItem(itemName, false).
+ *
  * Could not load the following classes:
  *  javax.inject.Singleton
  *  net.runelite.api.Actor
@@ -10,10 +12,8 @@
  *  net.runelite.api.Skill
  *  net.runelite.api.coords.WorldPoint
  *  net.runelite.api.widgets.WidgetInfo
- *  net.runelite.client.plugins.grounditems.GroundItem
  *  net.runelite.client.plugins.microbot.Microbot
  *  net.runelite.client.plugins.microbot.Script
- *  net.runelite.client.plugins.microbot.api.npc.Rs2NpcQueryable
  *  net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel
  *  net.runelite.client.plugins.microbot.globval.enums.InterfaceTab
  *  net.runelite.client.plugins.microbot.util.bank.Rs2Bank
@@ -22,10 +22,6 @@
  *  net.runelite.client.plugins.microbot.util.grandexchange.GrandExchangeAction
  *  net.runelite.client.plugins.microbot.util.grandexchange.GrandExchangeRequest
  *  net.runelite.client.plugins.microbot.util.grandexchange.Rs2GrandExchange
- *  net.runelite.client.plugins.microbot.util.grounditem.LootingParameters
- *  net.runelite.client.plugins.microbot.util.grounditem.Rs2GroundItem
- *  net.runelite.client.plugins.microbot.util.grounditem.Rs2LootEngine
- *  net.runelite.client.plugins.microbot.util.grounditem.Rs2LootEngine$Builder
  *  net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory
  *  net.runelite.client.plugins.microbot.util.inventory.Rs2ItemModel
  *  net.runelite.client.plugins.microbot.util.player.Rs2Player
@@ -38,6 +34,7 @@ package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.co
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -52,6 +49,7 @@ import net.runelite.api.Player;
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
 import net.runelite.api.Skill;
+import net.runelite.api.GrandExchangeOfferState;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.plugins.microbot.Microbot;
@@ -59,7 +57,9 @@ import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel;
 import net.runelite.client.plugins.microbot.api.tileitem.models.Rs2TileItemModel;
 import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.areas.CombatAreas;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.equipment.amulet.Amulet;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.equipment.armour.Armour;
@@ -72,6 +72,7 @@ import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.com
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.loot.mossgiantloot.MossGiantLoot;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.meleescript.CombatState;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.npc.NPC;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.gearea.GEArea;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.combat.Rs2Combat;
 import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
@@ -84,17 +85,17 @@ import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2ItemModel;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
 import net.runelite.client.plugins.microbot.util.tabs.Rs2Tab;
-import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @Singleton
 public class MeleeScript
-extends Script {
+        extends Script {
     private static final Logger log = LoggerFactory.getLogger(MeleeScript.class);
     private static final int LOOP_DELAY_MS = 600;
     private static final int WEB_WALK_COOLDOWN_MS = 3000;
-    private static final int BUY_WAIT_TIMEOUT_MS = 20000;
+    private static final int BUY_WAIT_TIMEOUT_MS = 60_000;
+    private static final int GE_PRICE_INCREASE_STEP_PERCENT = 10;
     private static final int GE_OFFER_INPUT_DELAY_MS = 900;
     private static final int TARGET_FOOD_COUNT = 5;
     private static final int FOOD_PURCHASE_QUANTITY = 20;
@@ -169,6 +170,10 @@ extends Script {
                     this.status = "Waiting for melee weapon";
                     return;
                 }
+                if (this.ensureBalancedAttackStyle()) {
+                    this.state = CombatState.PREPARING;
+                    return;
+                }
                 if (!this.ensureInTargetArea(stage.area)) {
                     this.state = CombatState.WALKING_TO_AREA;
                     return;
@@ -223,21 +228,25 @@ extends Script {
     }
 
     private boolean handleHealing() {
-        int maxHp;
         Food bestInventoryFood = this.getBestFoodInInventory();
         if (bestInventoryFood == null) {
             return false;
         }
+
         int currentHp = Microbot.getClient().getBoostedSkillLevel(Skill.HITPOINTS);
-        boolean shouldEat = this.shouldHealNow(currentHp, maxHp = Microbot.getClient().getRealSkillLevel(Skill.HITPOINTS));
-        if (!shouldEat) {
+        int maxHp = Microbot.getClient().getRealSkillLevel(Skill.HITPOINTS);
+
+        if (!this.shouldHealNow(currentHp, maxHp)) {
             return false;
         }
+
         this.status = "Eating " + bestInventoryFood.getDisplayName() + " at " + currentHp + "/" + maxHp + " hp";
-        if (Rs2Inventory.interact((String)bestInventoryFood.getDisplayName(), (String)"Eat")) {
-            MeleeScript.sleepUntil(() -> Microbot.getClient().getBoostedSkillLevel(Skill.HITPOINTS) > currentHp, (int)1800);
+
+        if (Rs2Inventory.interact(bestInventoryFood.getItemId(), "Eat")) {
+            MeleeScript.sleepUntil(() -> Microbot.getClient().getBoostedSkillLevel(Skill.HITPOINTS) > currentHp, 1800);
             return true;
         }
+
         return false;
     }
 
@@ -278,44 +287,75 @@ extends Script {
 
     private void handleBanking(TrainingStage stage) {
         this.status = "Banking for " + stage.primaryNpc.getDisplayName();
+
         if (!Rs2Bank.isOpen()) {
             if (!Rs2Bank.walkToBankAndUseBank() && !Rs2Bank.openBank()) {
                 return;
             }
-            MeleeScript.sleepUntil(Rs2Bank::isOpen, (int)3000);
+            MeleeScript.sleepUntil(Rs2Bank::isOpen, 3000);
             return;
         }
+
+        if (!KspBankMode.ensureWithdrawAsItem()) {
+            this.debug("Waiting for withdraw-as-item mode before melee banking withdrawals");
+            return;
+        }
+
         if (!Rs2Inventory.isEmpty()) {
             Rs2Bank.depositAll();
-            MeleeScript.sleepUntil(Rs2Inventory::isEmpty, (int)3000);
+            MeleeScript.sleepUntil(Rs2Inventory::isEmpty, 3000);
         }
+
         GearPlan gearPlan = this.buildGearPlan();
         ArrayList<PurchaseRequest> purchases = new ArrayList<PurchaseRequest>();
+
         for (String desiredItem : gearPlan.desiredItems) {
-            if (desiredItem == null || Rs2Equipment.isWearing((String[])new String[]{desiredItem})) continue;
-            if (Rs2Bank.count((String)desiredItem) > 0) {
-                Rs2Bank.withdrawX((String)desiredItem, (int)1);
-                MeleeScript.sleepUntil(() -> Rs2Inventory.hasItem((String[])new String[]{desiredItem}), (int)2000);
+            if (desiredItem == null || Rs2Equipment.isWearing((String[]) new String[]{desiredItem})) {
                 continue;
             }
-            if (this.hasItemAnywhere(desiredItem)) continue;
+
+            if (Rs2Bank.count(desiredItem) > 0) {
+                Rs2Bank.withdrawX(desiredItem, 1);
+                MeleeScript.sleepUntil(() -> Rs2Inventory.hasItem((String[]) new String[]{desiredItem}), 2000);
+                continue;
+            }
+
+            if (this.hasItemAnywhere(desiredItem)) {
+                continue;
+            }
+
             purchases.add(new PurchaseRequest(desiredItem, 1));
         }
+
         Food bankFood = this.getBestFoodAvailableInBank();
+
         if (bankFood != null) {
-            Rs2Bank.withdrawX((String)bankFood.getDisplayName(), (int)5);
-            MeleeScript.sleepUntil(() -> Rs2Inventory.count((String)bankFood.getDisplayName()) >= 1, (int)2000);
+            this.debug("Withdrawing combat food by item id | food={} id={} amount={}",
+                    bankFood.getDisplayName(),
+                    bankFood.getItemId(),
+                    TARGET_FOOD_COUNT);
+
+            Rs2Bank.withdrawX(bankFood.getItemId(), TARGET_FOOD_COUNT);
+            MeleeScript.sleepUntil(() -> Rs2Inventory.itemQuantity(bankFood.getItemId()) >= 1, 2000);
         } else {
-            purchases.add(new PurchaseRequest(this.getBestOverallFood().getDisplayName(), 20));
+            Food foodToBuy = this.getBestOverallFood();
+            purchases.add(new PurchaseRequest(foodToBuy.getDisplayName(), FOOD_PURCHASE_QUANTITY));
         }
-        if (!purchases.isEmpty() && Rs2Inventory.count((String)COINS_NAME) <= 0 && Rs2Bank.count((String)COINS_NAME) > 0) {
-            Rs2Bank.withdrawAll((String)COINS_NAME);
-            MeleeScript.sleepUntil(() -> Rs2Inventory.itemQuantity((int)995) > 0, (int)2000);
+
+        if (!purchases.isEmpty() && Rs2Inventory.count(COINS_NAME) <= 0 && Rs2Bank.count(COINS_NAME) > 0) {
+            Rs2Bank.withdrawAll(COINS_NAME);
+            MeleeScript.sleepUntil(() -> Rs2Inventory.itemQuantity(995) > 0, 2000);
         }
+
         Rs2Bank.closeBank();
-        MeleeScript.sleepUntil(() -> !Rs2Bank.isOpen(), (int)2000);
+        MeleeScript.sleepUntil(() -> !Rs2Bank.isOpen(), 2000);
+
         this.pendingPurchases.clear();
-        this.pendingPurchases.addAll(purchases.stream().filter(p -> p != null && !this.hasItemAnywhere(p.itemName)).collect(Collectors.toList()));
+        this.pendingPurchases.addAll(
+                purchases.stream()
+                        .filter(p -> p != null && !this.hasItemAnywhere(p.itemName))
+                        .collect(Collectors.toList())
+        );
     }
 
     private boolean equipInventoryUpgrades() {
@@ -336,7 +376,18 @@ extends Script {
             return false;
         }
         this.status = "Buying upgrades for " + stage.primaryNpc.getDisplayName();
-        if (!Rs2GrandExchange.walkToGrandExchange()) {
+        GEArea grandExchangeArea = GEArea.GRAND_EXCHANGE;
+        if (!grandExchangeArea.toWorldArea().contains(Rs2Player.getWorldLocation())) {
+            this.status = "Walking to Grand Exchange";
+            if (!Rs2Player.isMoving()) {
+                KspWalkerGuard.walkToDestination(
+                        "Melee:grand-exchange",
+                        grandExchangeArea::getRandomPoint,
+                        grandExchangeArea.toWorldArea()::contains,
+                        2,
+                        WEB_WALK_COOLDOWN_MS);
+            }
+
             this.debug("Walking to Grand Exchange for melee purchases | pending={} active={} player={}",
                     this.pendingPurchases.size(),
                     this.activePurchases.size(),
@@ -349,10 +400,14 @@ extends Script {
             return true;
         }
         this.syncActivePurchasesFromOpenOffers();
-        if (Rs2GrandExchange.hasBoughtOffer() || Rs2GrandExchange.hasSoldOffer()) {
+
+        if (this.modifyTimedOutGrandExchangeOffers()) {
+            return true;
+        }
+
+        if (this.hasCollectableGrandExchangeOffer()) {
             this.markCompletedActivePurchases();
-            Rs2GrandExchange.collectAllToBank();
-            MeleeScript.sleepUntil(() -> !Rs2GrandExchange.hasBoughtOffer() && !Rs2GrandExchange.hasSoldOffer(), (int)5000);
+            this.collectMeleeGrandExchangeOffers("completed melee purchase");
             this.clearOwnedPurchases();
             this.closeGrandExchangeIfPurchasesComplete();
             return true;
@@ -396,21 +451,164 @@ extends Script {
         if (purchase == null || purchase.itemName == null) {
             return false;
         }
+
         GrandExchangeRequest request = GrandExchangeRequest.builder()
                 .action(GrandExchangeAction.BUY)
                 .itemName(purchase.itemName)
                 .quantity(purchase.quantity)
-                .percent(10)
+                .percent(purchase.priceBoostPercent)
                 .closeAfterCompletion(false)
                 .build();
+
         this.waitForGrandExchangeOfferInput();
-        this.debug("Placing melee GE buy offer | item={} qty={} percent=10 availableSlots={}", purchase.itemName, purchase.quantity, Rs2GrandExchange.getAvailableSlotsCount());
-        if (!Rs2GrandExchange.processOffer((GrandExchangeRequest)request)) {
+
+        this.debug(
+                "Placing melee GE buy offer | item={} qty={} percent={} availableSlots={}",
+                purchase.itemName,
+                purchase.quantity,
+                purchase.priceBoostPercent,
+                Rs2GrandExchange.getAvailableSlotsCount()
+        );
+
+        if (!Rs2GrandExchange.processOffer(request)) {
             this.debug("Failed to place melee GE buy offer | item={} qty={}", purchase.itemName, purchase.quantity);
             return false;
         }
-        MeleeScript.sleepUntil(() -> !Rs2GrandExchange.isOfferScreenOpen(), (int)2000);
+
+        purchase.markPlaced();
+
+        MeleeScript.sleepUntil(() -> !Rs2GrandExchange.isOfferScreenOpen(), 2000);
         return true;
+    }
+
+    private boolean modifyTimedOutGrandExchangeOffers() {
+        for (GrandExchangeSlots slot : Rs2GrandExchange.getActiveOfferSlots()) {
+            GrandExchangeOfferDetails details = Rs2GrandExchange.getOfferDetails(slot);
+
+            if (details == null || details.isSelling() || details.getItemName() == null) {
+                continue;
+            }
+
+            PurchaseRequest purchase = this.getActivePurchase(details.getItemName());
+
+            if (purchase == null) {
+                continue;
+            }
+
+            if (this.isFinishedTradeOffer(details)) {
+                continue;
+            }
+
+            if (this.isCancelledBuyOffer(details)) {
+                this.status = "Collecting cancelled GE offer for " + purchase.itemName;
+                this.debug("Cancelled melee GE buy offer still present | item={} slot={} state={}",
+                        purchase.itemName,
+                        slot,
+                        details.getState());
+
+                if (!this.collectMeleeGrandExchangeOffers("cancelled timed melee purchase")) {
+                    purchase.markPlaced();
+                    return true;
+                }
+
+                if (!this.waitForGrandExchangeSlotToClear(slot, purchase.itemName)) {
+                    purchase.markPlaced();
+                    this.debug("Cancelled melee GE slot did not clear yet | item={} slot={}", purchase.itemName, slot);
+                    return true;
+                }
+
+                this.requeuePurchaseWithIncreasedPrice(purchase);
+                return true;
+            }
+
+            if (purchase.offerPlacedAtMs <= 0L) {
+                purchase.markPlaced();
+                continue;
+            }
+
+            if (!purchase.shouldIncreasePrice()) {
+                continue;
+            }
+
+            this.status = "Increasing GE offer for " + purchase.itemName;
+
+            this.debug(
+                    "Timed out GE buy offer | item={} currentPercent={} slot={} elapsedMs={}",
+                    purchase.itemName,
+                    purchase.priceBoostPercent,
+                    slot,
+                    System.currentTimeMillis() - purchase.offerPlacedAtMs
+            );
+
+            if (!this.abortGrandExchangePurchase(purchase, slot)) {
+                this.debug(
+                        "Failed to abort GE offer for timed purchase | item={} slot={}",
+                        purchase.itemName,
+                        slot
+                );
+                return true;
+            }
+
+            this.collectMeleeGrandExchangeOffers("aborted timed melee purchase");
+
+            if (!this.waitForGrandExchangeSlotToClear(slot, purchase.itemName)) {
+                purchase.markPlaced();
+                this.debug("Waiting for aborted GE slot to clear before requeue | item={} slot={}", purchase.itemName, slot);
+                return true;
+            }
+
+            this.requeuePurchaseWithIncreasedPrice(purchase);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean abortGrandExchangePurchase(PurchaseRequest purchase, GrandExchangeSlots slot) {
+        if (purchase == null || purchase.itemName == null || purchase.itemName.isBlank() || slot == null) {
+            return false;
+        }
+
+        try {
+            List<?> cancelledOffers = Rs2GrandExchange.cancelSpecificOffers(Collections.singletonList(slot), false);
+            boolean cancelled = !cancelledOffers.isEmpty()
+                    || this.isCancelledBuyOffer(Rs2GrandExchange.getOfferDetails(slot))
+                    || Rs2GrandExchange.findSlotForItem(purchase.itemName, false) == null;
+            this.debug("Abort melee GE offer | item={} slot={} cancelled={} collectable={}",
+                    purchase.itemName,
+                    slot,
+                    cancelled,
+                    this.hasCollectableGrandExchangeOffer());
+            return cancelled;
+        } catch (Exception ex) {
+            this.debug(
+                    "Failed to abort melee GE offer | item={} slot={} error={}",
+                    purchase.itemName,
+                    slot,
+                    ex.getMessage()
+            );
+            return false;
+        }
+    }
+
+    private boolean waitForGrandExchangeSlotToClear(GrandExchangeSlots slot, String itemName) {
+        return MeleeScript.sleepUntil(
+                () -> Rs2GrandExchange.isSlotAvailable(slot)
+                        || Rs2GrandExchange.findSlotForItem(itemName, false) == null,
+                5_000
+        );
+    }
+
+    private void requeuePurchaseWithIncreasedPrice(PurchaseRequest purchase) {
+        purchase.increasePrice();
+        this.activePurchases.remove(purchase);
+        this.pendingPurchases.add(0, purchase);
+        this.debug(
+                "Re-queued GE buy offer with increased price | item={} newPercent={}",
+                purchase.itemName,
+                purchase.priceBoostPercent
+        );
     }
 
     private void syncActivePurchasesFromOpenOffers() {
@@ -423,6 +621,8 @@ extends Script {
             if (pending == null || this.isPurchaseActive(details.getItemName())) {
                 continue;
             }
+
+            pending.markPlaced();
             this.pendingPurchases.remove(pending);
             this.activePurchases.add(pending);
         }
@@ -431,14 +631,14 @@ extends Script {
     private void markCompletedActivePurchases() {
         boolean markedAny = false;
         for (GrandExchangeOfferDetails details : Rs2GrandExchange.getCompletedOffers().values()) {
-            if (details == null || details.isSelling() || details.getItemName() == null) {
+            if (details == null || details.isSelling() || details.getItemName() == null || !this.isFinishedTradeOffer(details)) {
                 continue;
             }
             markedAny = this.removeActivePurchase(details.getItemName()) || markedAny;
         }
         for (GrandExchangeSlots slot : Rs2GrandExchange.getActiveOfferSlots()) {
             GrandExchangeOfferDetails details = Rs2GrandExchange.getOfferDetails(slot);
-            if (details == null || details.isSelling() || !details.isCompleted() || details.getItemName() == null) {
+            if (details == null || details.isSelling() || !this.isFinishedTradeOffer(details) || details.getItemName() == null) {
                 continue;
             }
             markedAny = this.removeActivePurchase(details.getItemName()) || markedAny;
@@ -466,10 +666,55 @@ extends Script {
             return;
         }
         if (Rs2GrandExchange.isOpen()) {
-            Rs2GrandExchange.collectAllToBank();
-            MeleeScript.sleepUntil(() -> !Rs2GrandExchange.hasBoughtOffer() && !Rs2GrandExchange.hasSoldOffer(), (int)5000);
+            if (!this.collectMeleeGrandExchangeOffers("closing completed melee purchases")) {
+                return;
+            }
             Rs2GrandExchange.closeExchange();
         }
+    }
+
+    private boolean collectMeleeGrandExchangeOffers(String reason) {
+        if (!this.hasCollectableGrandExchangeOffer()) {
+            return true;
+        }
+
+        boolean clicked = Rs2GrandExchange.collectAllToInventory();
+        boolean cleared = MeleeScript.sleepUntil(() -> !this.hasCollectableGrandExchangeOffer(), 5_000);
+        this.debug("Collect melee GE offers | reason={} clicked={} cleared={} bought={} sold={} activeSlots={}",
+                reason,
+                clicked,
+                cleared,
+                Rs2GrandExchange.hasBoughtOffer(),
+                Rs2GrandExchange.hasSoldOffer(),
+                Rs2GrandExchange.getActiveOfferSlots().length);
+        return cleared;
+    }
+
+    private boolean hasCollectableGrandExchangeOffer() {
+        if (Rs2GrandExchange.hasBoughtOffer() || Rs2GrandExchange.hasSoldOffer()) {
+            return true;
+        }
+
+        for (GrandExchangeSlots slot : Rs2GrandExchange.getActiveOfferSlots()) {
+            GrandExchangeOfferDetails details = Rs2GrandExchange.getOfferDetails(slot);
+            if (details != null && details.isCompleted()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean isFinishedTradeOffer(GrandExchangeOfferDetails details) {
+        if (details == null) {
+            return false;
+        }
+        return details.getState() == GrandExchangeOfferState.BOUGHT
+                || details.getState() == GrandExchangeOfferState.SOLD;
+    }
+
+    private boolean isCancelledBuyOffer(GrandExchangeOfferDetails details) {
+        return details != null && details.getState() == GrandExchangeOfferState.CANCELLED_BUY;
     }
 
     private PurchaseRequest getPendingPurchase(String itemName) {
@@ -484,16 +729,22 @@ extends Script {
         return null;
     }
 
-    private boolean isPurchaseActive(String itemName) {
+    private PurchaseRequest getActivePurchase(String itemName) {
         if (itemName == null) {
-            return false;
+            return null;
         }
+
         for (PurchaseRequest purchase : this.activePurchases) {
             if (purchase != null && itemName.equalsIgnoreCase(purchase.itemName)) {
-                return true;
+                return purchase;
             }
         }
-        return false;
+
+        return null;
+    }
+
+    private boolean isPurchaseActive(String itemName) {
+        return this.getActivePurchase(itemName) != null;
     }
 
     private boolean removeActivePurchase(String itemName) {
@@ -568,21 +819,26 @@ extends Script {
     }
 
     private boolean ensureInTargetArea(CombatAreas targetArea) {
-        WorldPoint walkTarget;
         if (targetArea.contains(Rs2Player.getWorldLocation())) {
+            KspWalkerGuard.clear("Melee:target-area");
             return true;
         }
         if (Rs2Player.isMoving()) {
             return false;
         }
-        long now = System.currentTimeMillis();
-        if (now - this.lastWebWalkAtMs < 3000L) {
-            return false;
-        }
-        this.lastWebWalkAtMs = now;
         this.status = "Walking to " + targetArea.getDisplayName();
-        this.lastWalkTarget = walkTarget = targetArea.getRandomPoint();
-        Rs2Walker.walkTo(walkTarget, 2);
+        if (KspWalkerGuard.walkToDestination(
+                "Melee:target-area",
+                targetArea::getRandomPoint,
+                targetArea::contains,
+                2,
+                WEB_WALK_COOLDOWN_MS)) {
+            this.lastWebWalkAtMs = System.currentTimeMillis();
+            this.lastWalkTarget = null;
+            this.debug("Requested melee area walk | player={} area={}",
+                    Rs2Player.getWorldLocation(),
+                    targetArea.getDisplayName());
+        }
         return false;
     }
 
@@ -667,29 +923,59 @@ extends Script {
         int attack = this.getSkillLevel(Skill.ATTACK);
         int strength = this.getSkillLevel(Skill.STRENGTH);
         int defence = this.getSkillLevel(Skill.DEFENCE);
-        Skill targetSkill = Skill.ATTACK;
-        WidgetInfo targetWidget = WidgetInfo.COMBAT_STYLE_ONE;
-        int targetStyleIndex = 0;
-        if (strength <= attack && strength <= defence) {
+
+        Skill targetSkill;
+        WidgetInfo targetWidget;
+        int targetStyleIndex;
+
+        if (attack <= strength && attack <= defence) {
+            targetSkill = Skill.ATTACK;
+            targetWidget = WidgetInfo.COMBAT_STYLE_ONE;
+            targetStyleIndex = 0;
+        } else if (strength <= attack && strength <= defence) {
             targetSkill = Skill.STRENGTH;
             targetWidget = WidgetInfo.COMBAT_STYLE_TWO;
             targetStyleIndex = 1;
-        } else if (defence <= attack && defence <= strength) {
+        } else {
             targetSkill = Skill.DEFENCE;
             targetWidget = WidgetInfo.COMBAT_STYLE_FOUR;
             targetStyleIndex = 3;
         }
-        if (Microbot.getVarbitPlayerValue((int)43) == targetStyleIndex) {
+
+        int currentStyleIndex = Microbot.getVarbitPlayerValue(43);
+
+        if (currentStyleIndex == targetStyleIndex) {
             this.status = "Training " + targetSkill.getName().toLowerCase(Locale.ENGLISH);
             return false;
         }
+
+        if (Rs2Player.isMoving()) {
+            this.status = "Waiting to switch combat style";
+            return false;
+        }
+
         if (Rs2Tab.getCurrentTab() != InterfaceTab.COMBAT) {
             Rs2Tab.switchToCombatOptionsTab();
-            MeleeScript.sleepUntil(() -> Rs2Tab.getCurrentTab() == InterfaceTab.COMBAT, (int)1500);
+            MeleeScript.sleepUntil(() -> Rs2Tab.getCurrentTab() == InterfaceTab.COMBAT, 1500);
         }
-        Rs2Combat.setAttackStyle((WidgetInfo)targetWidget);
-        this.status = "Training " + targetSkill.getName().toLowerCase(Locale.ENGLISH);
-        return true;
+
+        this.status = "Switching combat style to " + targetSkill.getName().toLowerCase(Locale.ENGLISH);
+
+        Rs2Combat.setAttackStyle(targetWidget);
+
+        boolean switched = MeleeScript.sleepUntil(
+                () -> Microbot.getVarbitPlayerValue(43) == targetStyleIndex,
+                2000
+        );
+
+        this.debug("Combat style switch | targetSkill={} targetIndex={} oldIndex={} newIndex={} switched={}",
+                targetSkill.getName(),
+                targetStyleIndex,
+                currentStyleIndex,
+                Microbot.getVarbitPlayerValue(43),
+                switched);
+
+        return switched;
     }
 
     private GearPlan buildGearPlan() {
@@ -752,19 +1038,29 @@ extends Script {
     }
 
     private Food getBestFoodInInventory() {
-        return Arrays.stream(Food.values()).filter(food -> Rs2Inventory.count((String)food.getDisplayName()) > 0).max(Comparator.comparingInt(Food::getHealAmount)).orElse(null);
+        return Arrays.stream(Food.values())
+                .filter(food -> Rs2Inventory.itemQuantity(food.getItemId()) > 0)
+                .max(Comparator.comparingInt(Food::getHealAmount))
+                .orElse(null);
     }
 
     private Food getBestFoodAvailableInBank() {
-        return Arrays.stream(Food.values()).filter(food -> Rs2Bank.count((String)food.getDisplayName()) > 0).max(Comparator.comparingInt(Food::getHealAmount)).orElse(null);
+        return Arrays.stream(Food.values())
+                .filter(food -> Rs2Bank.count(food.getItemId()) > 0)
+                .max(Comparator.comparingInt(Food::getHealAmount))
+                .orElse(null);
     }
 
     private Food getBestOverallFood() {
-        return Arrays.stream(Food.values()).max(Comparator.comparingInt(Food::getHealAmount)).orElse(Food.SALMON);
+        return Arrays.stream(Food.values())
+                .max(Comparator.comparingInt(Food::getHealAmount))
+                .orElse(Food.SALMON);
     }
 
     private int getFoodCountInInventory() {
-        return Arrays.stream(Food.values()).mapToInt(food -> Rs2Inventory.count((String)food.getDisplayName())).sum();
+        return Arrays.stream(Food.values())
+                .mapToInt(food -> Rs2Inventory.itemQuantity(food.getItemId()))
+                .sum();
     }
 
     private boolean shouldBankForNoFood(TrainingStage stage) {
@@ -807,6 +1103,8 @@ extends Script {
     public void shutdown() {
         this.lastWebWalkAtMs = 0L;
         this.lastWalkTarget = null;
+        KspWalkerGuard.clear("Melee:target-area");
+        KspWalkerGuard.clear("Melee:grand-exchange");
         this.pendingPurchases.clear();
         this.activePurchases.clear();
         this.state = CombatState.PREPARING;
@@ -831,10 +1129,28 @@ extends Script {
     private static class PurchaseRequest {
         private final String itemName;
         private final int quantity;
+        private int priceBoostPercent;
+        private long offerPlacedAtMs;
 
         public PurchaseRequest(String itemName, int quantity) {
             this.itemName = itemName;
             this.quantity = quantity;
+            this.priceBoostPercent = 10;
+            this.offerPlacedAtMs = 0L;
+        }
+
+        public void markPlaced() {
+            this.offerPlacedAtMs = System.currentTimeMillis();
+        }
+
+        public boolean shouldIncreasePrice() {
+            return this.offerPlacedAtMs > 0L
+                    && System.currentTimeMillis() - this.offerPlacedAtMs >= BUY_WAIT_TIMEOUT_MS;
+        }
+
+        public void increasePrice() {
+            this.priceBoostPercent += GE_PRICE_INCREASE_STEP_PERCENT;
+            this.offerPlacedAtMs = 0L;
         }
     }
 
