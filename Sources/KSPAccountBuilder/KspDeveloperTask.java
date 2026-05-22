@@ -5,6 +5,7 @@ package net.runelite.client.plugins.microbot.kspaccountbuilder;
 
 public enum KspDeveloperTask {
     DISABLED,
+    TUTORIAL_ISLAND,
     MINING,
     WOODCUTTING,
     MELEE,

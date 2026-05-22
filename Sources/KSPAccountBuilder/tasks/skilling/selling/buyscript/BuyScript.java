@@ -19,10 +19,7 @@ import net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel;
 import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
-import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.levelreqmining.MiningReq;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.gearea.GEArea;
-import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smithing.tool.SmithTool;
-import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.woodcutting.levelreqwc.WoodCuttingReq;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
 import net.runelite.client.plugins.microbot.util.grandexchange.GrandExchangeAction;
@@ -47,26 +44,20 @@ public class BuyScript extends Script {
     private static final int BANK_WAIT_TIMEOUT_MS = 3000;
     private static final int GE_OFFER_INPUT_DELAY_MS = 900;
 
-    private static final int TARGET_SMITHING_LEVEL = 15;
-    private static final int TARGET_SMITHING_XP = 2411;
-    private static final double BRONZE_BAR_SMITHING_XP = 6.2D;
+    private static final int TARGET_SMITHING_LEVEL = Buy.TARGET_SMITHING_LEVEL;
+    private static final int TARGET_SMITHING_XP = Buy.TARGET_SMITHING_XP;
+    private static final double BRONZE_BAR_SMITHING_XP = Buy.BRONZE_BAR_SMITHING_XP;
 
-    private static final String COPPER_ORE_NAME = "Copper ore";
-    private static final String TIN_ORE_NAME = "Tin ore";
+    private static final String COPPER_ORE_NAME = Buy.COPPER_ORE_NAME;
+    private static final String TIN_ORE_NAME = Buy.TIN_ORE_NAME;
 
-    private static final String[] PICKAXE_NAMES = new String[]{
-            "Bronze pickaxe", "Iron pickaxe", "Steel pickaxe", "Black pickaxe",
-            "Mithril pickaxe", "Adamant pickaxe", "Rune pickaxe"
-    };
+    private static final String[] PICKAXE_NAMES = Buy.PICKAXE_NAMES;
 
-    private static final String[] AXE_NAMES = new String[]{
-            "Bronze axe", "Iron axe", "Steel axe", "Black axe",
-            "Mithril axe", "Adamant axe", "Rune axe"
-    };
+    private static final String[] AXE_NAMES = Buy.AXE_NAMES;
 
-    private static final String HAMMER_NAME = SmithTool.HAMMER.getDisplayName();
-    private static final int HAMMER_ITEM_ID = SmithTool.HAMMER.getItemId();
-    private static final String TINDERBOX_NAME = "Tinderbox";
+    private static final String HAMMER_NAME = Buy.HAMMER_NAME;
+    private static final int HAMMER_ITEM_ID = Buy.HAMMER_ITEM_ID;
+    private static final String TINDERBOX_NAME = Buy.TINDERBOX_NAME;
 
     private GEArea targetArea = GEArea.GRAND_EXCHANGE;
     private boolean debugLogging;
@@ -1418,13 +1409,11 @@ public class BuyScript extends Script {
     }
 
     private boolean hasItemIdInInventory(int itemId) {
-        return Rs2Inventory.all().stream()
-                .anyMatch(item -> item != null && item.getId() == itemId);
+        return Buy.hasItemIdInInventory(itemId);
     }
 
     private boolean hasItemIdInBank(int itemId) {
-        return Rs2Bank.bankItems().stream()
-                .anyMatch(item -> item != null && item.getId() == itemId);
+        return Buy.hasItemIdInBank(itemId);
     }
 
     private boolean isToolCachedInBank(String toolName) {
@@ -1452,35 +1441,15 @@ public class BuyScript extends Script {
     }
 
     private boolean isOutdatedToolName(String itemName, String desiredPickaxe, String desiredAxe) {
-        for (String pickaxeName : PICKAXE_NAMES) {
-            if (pickaxeName.equalsIgnoreCase(itemName)) {
-                return !pickaxeName.equalsIgnoreCase(desiredPickaxe);
-            }
-        }
-
-        for (String axeName : AXE_NAMES) {
-            if (axeName.equalsIgnoreCase(itemName)) {
-                return !axeName.equalsIgnoreCase(desiredAxe);
-            }
-        }
-
-        return false;
+        return Buy.isOutdatedToolName(itemName, desiredPickaxe, desiredAxe);
     }
 
     private String resolveDesiredPickaxeName() {
-        MiningReq bestMiningReq = MiningReq.bestForMiningLevel(
-                Microbot.getClient().getRealSkillLevel(Skill.MINING)
-        );
-
-        return PICKAXE_NAMES[bestMiningReq.ordinal()];
+        return Buy.resolveDesiredPickaxeNameForBuy();
     }
 
     private String resolveDesiredAxeName() {
-        WoodCuttingReq bestWoodcuttingReq = WoodCuttingReq.bestForWoodcuttingLevel(
-                Microbot.getClient().getRealSkillLevel(Skill.WOODCUTTING)
-        );
-
-        return AXE_NAMES[bestWoodcuttingReq.ordinal()];
+        return Buy.resolveDesiredAxeNameForBuy();
     }
 
     private int getAdjustedSellPrice(Rs2ItemModel item) {

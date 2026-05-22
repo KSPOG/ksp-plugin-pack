@@ -46,11 +46,10 @@ import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
-import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.levelreqmining.MiningReq;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.buyscript.Buy;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.gearea.GEArea;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.sell.SellList;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.sellscript.SellState;
-import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.woodcutting.levelreqwc.WoodCuttingReq;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.grandexchange.GrandExchangeAction;
 import net.runelite.client.plugins.microbot.util.grandexchange.GrandExchangeRequest;
@@ -79,8 +78,8 @@ extends Script {
     private static final int SIDE_JOURNAL_TAB_CONTAINER_WIDGET_ID = 41222157;
     private static final int ACCOUNT_SUMMARY_WIDGET_ID = 46661633;
     private static final int TIME_PLAYED_WIDGET_ID = 46661634;
-    private static final String[] PICKAXE_NAMES = new String[]{"Bronze pickaxe", "Iron pickaxe", "Steel pickaxe", "Black pickaxe", "Mithril pickaxe", "Adamant pickaxe", "Rune pickaxe"};
-    private static final String[] AXE_NAMES = new String[]{"Bronze axe", "Iron axe", "Steel axe", "Black axe", "Mithril axe", "Adamant axe", "Rune axe"};
+    private static final String[] PICKAXE_NAMES = Buy.PICKAXE_NAMES;
+    private static final String[] AXE_NAMES = Buy.AXE_NAMES;
     private static final Set<String> TRADE_RESTRICTED_ITEM_NAMES = new HashSet<String>(Arrays.asList("rune essence", "pure essence", "air rune", "water rune", "earth rune", "fire rune", "mind rune", "chaos rune", "nature rune", "law rune", "death rune", "blood rune", "feather", "cowhide", "leather", "green dragonhide", "copper ore", "tin ore", "iron ore", "coal", "gold ore", "mithril ore", "adamantite ore", "runite ore", "iron bar", "steel bar", "mithril bar", "adamantite bar", "runite bar", "logs", "oak logs", "willow logs", "maple logs", "yew logs", "magic logs", "raw shrimp", "shrimp", "raw anchovies", "anchovies", "raw trout", "trout", "raw salmon", "salmon", "raw tuna", "tuna", "raw lobster", "lobster", "raw swordfish", "swordfish", "raw shark", "shark", "sapphire", "emerald", "ruby", "diamond", "bow string", "bronze arrow", "iron arrow", "steel arrow", "mithril arrow", "adamant arrow", "rune arrow", "bronze bolts", "iron bolts", "steel bolts", "bones", "big bones", "wine of zamorak"));
     private GEArea targetArea = GEArea.GRAND_EXCHANGE;
     private boolean debugLogging;
@@ -385,25 +384,15 @@ extends Script {
     }
 
     private boolean isOutdatedToolName(String itemName, String desiredPickaxe, String desiredAxe) {
-        for (String pickaxeName : PICKAXE_NAMES) {
-            if (!pickaxeName.equalsIgnoreCase(itemName)) continue;
-            return !pickaxeName.equalsIgnoreCase(desiredPickaxe);
-        }
-        for (String axeName : AXE_NAMES) {
-            if (!axeName.equalsIgnoreCase(itemName)) continue;
-            return !axeName.equalsIgnoreCase(desiredAxe);
-        }
-        return false;
+        return Buy.isOutdatedToolName(itemName, desiredPickaxe, desiredAxe);
     }
 
     private String resolveDesiredPickaxeName() {
-        MiningReq bestMiningReq = MiningReq.bestForMiningLevel(Microbot.getClient().getRealSkillLevel(Skill.MINING));
-        return PICKAXE_NAMES[bestMiningReq.ordinal()];
+        return Buy.resolveDesiredPickaxeNameForBuy();
     }
 
     private String resolveDesiredAxeName() {
-        WoodCuttingReq bestWoodcuttingReq = WoodCuttingReq.bestForWoodcuttingLevel(Microbot.getClient().getRealSkillLevel(Skill.WOODCUTTING));
-        return AXE_NAMES[bestWoodcuttingReq.ordinal()];
+        return Buy.resolveDesiredAxeNameForBuy();
     }
 
     private boolean isBlockedSellItem(String itemName) {

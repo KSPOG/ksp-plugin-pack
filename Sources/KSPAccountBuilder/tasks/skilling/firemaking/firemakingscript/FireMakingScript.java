@@ -17,6 +17,7 @@ import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.fmarea.FireArea;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.loglevels.LogsLvl;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.buyscript.Buy;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.keyboard.Rs2Keyboard;
@@ -41,7 +42,7 @@ public class FireMakingScript extends Script
     private static final int NORMAL_FIRE_ID = 26185;
     private static final int FORESTERS_CAMPFIRE_ID = 49927;
 
-    private static final String TINDERBOX_NAME = "Tinderbox";
+    private static final String TINDERBOX_NAME = Buy.TINDERBOX_NAME;
     private static final String BURN_PROMPT_TEXT = "How many would you like to burn?";
 
     private FireArea targetArea = FireArea.FM_AREA_DRAYNOR_BANK;

@@ -23,6 +23,7 @@ import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.min
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.equiplevels.PickaxeEquip;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.levelreqmining.MiningReq;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.rocklevel.RockLevel;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.buyscript.Buy;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
@@ -45,8 +46,8 @@ public class MiningScript extends Script
     private static final int ROCK_SEARCH_PADDING_TILES = 8;
     private static final int OUT_OF_AREA_ROCK_FALLBACK_RADIUS = 4;
     private static final int MID_TIER_RANDOM_MAX_LEVEL = 60;
-    private static final String COPPER_ORE_NAME = "Copper ore";
-    private static final String TIN_ORE_NAME = "Tin ore";
+    private static final String COPPER_ORE_NAME = Buy.COPPER_ORE_NAME;
+    private static final String TIN_ORE_NAME = Buy.TIN_ORE_NAME;
     private static final int[] COPPER_ROCK_IDS = {
             ObjectID.COPPER_ROCKS,
             ObjectID.COPPER_ROCKS_10943,
@@ -77,21 +78,14 @@ public class MiningScript extends Script
             ObjectID.COAL_ROCKS_36204
     };
 
-    private static final List<String> PICKAXE_NAMES = Arrays.asList(
-            "Bronze pickaxe",
-            "Iron pickaxe",
-            "Steel pickaxe",
-            "Black pickaxe",
-            "Mithril pickaxe",
-            "Adamant pickaxe",
-            "Rune pickaxe"
-    );
+    private static final List<String> PICKAXE_NAMES = Buy.PICKAXE_NAME_LIST;
 
     private Areas targetArea = Areas.TIN_COPPER_VARROCK_EAST;
 
     private boolean startingTargetRockInitialized;
     private RockLevel randomMidTierRock;
     private boolean debugLogging;
+    private boolean progressiveMining = true;
     private boolean walkingToTargetArea;
 
     private long lastWebWalkAtMs;
@@ -101,6 +95,11 @@ public class MiningScript extends Script
     public void setDebugLogging(boolean debugLogging)
     {
         this.debugLogging = debugLogging;
+    }
+
+    public void setProgressiveMining(boolean progressiveMining)
+    {
+        this.progressiveMining = progressiveMining;
     }
 
     public boolean run(Areas area)
@@ -123,7 +122,7 @@ public class MiningScript extends Script
 
             initializeStartingTargetRock(miningLevel);
 
-            Areas desiredArea = resolveTargetArea(miningLevel);
+            Areas desiredArea = progressiveMining ? resolveTargetArea(miningLevel) : targetArea;
 
             if (desiredArea != targetArea)
             {

@@ -16,6 +16,7 @@ import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.buyscript.Buy;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.woodcutting.equiplevels.AxeEquip;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.woodcutting.levelreqwc.WoodCuttingReq;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.woodcutting.treeareas.TreeAreas;
@@ -40,16 +41,9 @@ public class WoodCuttingScript extends Script {
     private static final int TREE_SEARCH_PADDING_TILES = 8;
     private static final int OUT_OF_AREA_TREE_FALLBACK_RADIUS = 4;
     private static final int MID_TIER_RANDOM_MAX_LEVEL = 60;
+    private static final int WILLOW_SAFE_COMBAT_LEVEL = 16;
 
-    private static final List<String> AXE_NAMES = Arrays.asList(
-            "Bronze axe",
-            "Iron axe",
-            "Steel axe",
-            "Black axe",
-            "Mithril axe",
-            "Adamant axe",
-            "Rune axe"
-    );
+    private static final List<String> AXE_NAMES = Buy.AXE_NAME_LIST;
 
     private TreeAreas targetArea = TreeAreas.REGULAR_TREE_VARROCK_WEST;
     private boolean startingTargetTreeInitialized;
@@ -690,11 +684,14 @@ public class WoodCuttingScript extends Script {
         }
 
         if (woodcuttingLevel >= TreeLevel.YEW.getRequiredWoodcuttingLevel()) {
-            List<TreeLevel> levelSixtyOptions = Arrays.asList(TreeLevel.WILLOW, TreeLevel.YEW);
+            List<TreeLevel> levelSixtyOptions = this.canCutWillowsSafely()
+                    ? Arrays.asList(TreeLevel.WILLOW, TreeLevel.YEW)
+                    : Arrays.asList(TreeLevel.YEW);
             return levelSixtyOptions.get(ThreadLocalRandom.current().nextInt(levelSixtyOptions.size()));
         }
 
-        if (woodcuttingLevel >= TreeLevel.WILLOW.getRequiredWoodcuttingLevel()) {
+        if (woodcuttingLevel >= TreeLevel.WILLOW.getRequiredWoodcuttingLevel()
+                && this.canCutWillowsSafely()) {
             return TreeLevel.WILLOW;
         }
 
@@ -707,7 +704,30 @@ public class WoodCuttingScript extends Script {
 
     private boolean shouldRandomizeMidTierTree(int woodcuttingLevel) {
         return woodcuttingLevel >= TreeLevel.WILLOW.getRequiredWoodcuttingLevel()
-                && woodcuttingLevel < MID_TIER_RANDOM_MAX_LEVEL;
+                && woodcuttingLevel < MID_TIER_RANDOM_MAX_LEVEL
+                && this.canCutWillowsSafely();
+    }
+
+    private boolean canCutWillowsSafely() {
+        int combatLevel = this.getCombatLevel();
+        boolean safe = combatLevel >= WILLOW_SAFE_COMBAT_LEVEL;
+
+        if (!safe) {
+            KspTaskDebug.throttled(log, this.debugLogging, "Woodcutting", "willow-combat-gate", 10_000L,
+                    "skipping willows until combat level {} | currentCombat={}",
+                    WILLOW_SAFE_COMBAT_LEVEL,
+                    combatLevel);
+        }
+
+        return safe;
+    }
+
+    private int getCombatLevel() {
+        if (Microbot.getClient() == null || Microbot.getClient().getLocalPlayer() == null) {
+            return 0;
+        }
+
+        return Microbot.getClient().getLocalPlayer().getCombatLevel();
     }
 
     private void initializeStartingTargetTree(int woodcuttingLevel) {

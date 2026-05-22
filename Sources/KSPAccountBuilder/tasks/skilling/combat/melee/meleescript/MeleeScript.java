@@ -61,9 +61,6 @@ import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.areas.CombatAreas;
-import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.equipment.amulet.Amulet;
-import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.equipment.armour.Armour;
-import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.equipment.cape.Capes;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.equipment.weapon.Weapons;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.food.Food;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.loot.alkharidwarriotloot.WarriorLoot;
@@ -72,6 +69,7 @@ import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.com
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.loot.mossgiantloot.MossGiantLoot;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.meleescript.CombatState;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.npc.NPC;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.buyscript.Buy;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.gearea.GEArea;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.combat.Rs2Combat;
@@ -95,12 +93,12 @@ public class MeleeScript
     private static final int LOOP_DELAY_MS = 600;
     private static final int WEB_WALK_COOLDOWN_MS = 3000;
     private static final int BUY_WAIT_TIMEOUT_MS = 60_000;
-    private static final int GE_PRICE_INCREASE_STEP_PERCENT = 10;
+    private static final int GE_PRICE_INCREASE_STEP_PERCENT = Buy.MELEE_GE_PRICE_INCREASE_STEP_PERCENT;
     private static final int GE_OFFER_INPUT_DELAY_MS = 900;
-    private static final int TARGET_FOOD_COUNT = 5;
-    private static final int FOOD_PURCHASE_QUANTITY = 20;
+    private static final int TARGET_FOOD_COUNT = Buy.MELEE_TARGET_FOOD_COUNT;
+    private static final int FOOD_PURCHASE_QUANTITY = Buy.MELEE_FOOD_PURCHASE_QUANTITY;
     private static final int LOOT_RADIUS = 12;
-    private static final String COINS_NAME = "Coins";
+    private static final String COINS_NAME = Buy.COINS_NAME;
     private String status = "Idle";
     private CombatState state = CombatState.PREPARING;
     private boolean debugLogging;
@@ -981,20 +979,14 @@ public class MeleeScript
     private GearPlan buildGearPlan() {
         int attackLevel = this.getSkillLevel(Skill.ATTACK);
         int defenceLevel = this.getSkillLevel(Skill.DEFENCE);
-        ArrayList<String> desired = new ArrayList<String>();
-        this.addIfPresent(desired, this.getBestWeapon(attackLevel));
-        this.addIfPresent(desired, this.getBestArmour(defenceLevel, "full helm"));
-        this.addIfPresent(desired, this.getBestArmour(defenceLevel, "kiteshield"));
-        this.addIfPresent(desired, this.getBestArmour(defenceLevel, "platelegs"));
-        this.addIfPresent(desired, this.getBestBodyArmour(defenceLevel));
-        this.addIfPresent(desired, Amulet.AMULET_OF_POWER.getDisplayName());
-        this.addIfPresent(desired, Capes.TEAM_1_CAPE.getDisplayName());
-        List<String> missingItems = desired.stream().filter(item -> !this.hasItemAnywhere((String)item)).collect(Collectors.toList());
-        return new GearPlan(desired, missingItems);
-    }
+        Buy.MeleeGearPlan buyPlan = Buy.buildMeleeGearPlan(
+                attackLevel,
+                defenceLevel,
+                this.isDragonSlayerCompleted(),
+                this::hasItemAnywhere
+        );
 
-    private String getBestWeapon(int attackLevel) {
-        return Arrays.stream(Weapons.values()).filter(weapon -> attackLevel >= weapon.getRequiredAttackLevel()).max(Comparator.comparingInt(Weapons::getRequiredAttackLevel).thenComparingInt(Enum::ordinal)).map(Weapons::getDisplayName).orElse(null);
+        return new GearPlan(buyPlan.getDesiredItems(), buyPlan.getMissingItems());
     }
 
     private String getBestOwnedWeaponUpToCurrentLevel() {
@@ -1010,21 +1002,6 @@ public class MeleeScript
         return itemName != null && (Rs2Equipment.isWearing((String[])new String[]{itemName}) || Rs2Inventory.hasItem((String[])new String[]{itemName}));
     }
 
-    private String getBestArmour(int defenceLevel, String marker) {
-        return Arrays.stream(Armour.values()).filter(armour -> defenceLevel >= armour.getRequiredDefenceLevel()).filter(armour -> armour.getDisplayName().toLowerCase(Locale.ENGLISH).contains(marker)).max(Comparator.comparingInt(Armour::getRequiredDefenceLevel).thenComparingInt(Enum::ordinal)).map(Armour::getDisplayName).orElse(null);
-    }
-
-    private String getBestBodyArmour(int defenceLevel) {
-        if (defenceLevel >= Armour.RUNE_CHAINBODY.getRequiredDefenceLevel() && !this.isDragonSlayerCompleted()) {
-            return Armour.RUNE_CHAINBODY.getDisplayName();
-        }
-        String platebody = this.getBestArmour(defenceLevel, "platebody");
-        if (platebody != null) {
-            return platebody;
-        }
-        return Arrays.stream(Armour.values()).filter(armour -> defenceLevel >= armour.getRequiredDefenceLevel()).filter(armour -> armour.getDisplayName().toLowerCase(Locale.ENGLISH).contains("chainbody")).max(Comparator.comparingInt(Armour::getRequiredDefenceLevel).thenComparingInt(Enum::ordinal)).map(Armour::getDisplayName).orElse(null);
-    }
-
     private boolean isDragonSlayerCompleted() {
         return Rs2Player.getQuestState((Quest)Quest.DRAGON_SLAYER_I) == QuestState.FINISHED;
     }
@@ -1038,29 +1015,19 @@ public class MeleeScript
     }
 
     private Food getBestFoodInInventory() {
-        return Arrays.stream(Food.values())
-                .filter(food -> Rs2Inventory.itemQuantity(food.getItemId()) > 0)
-                .max(Comparator.comparingInt(Food::getHealAmount))
-                .orElse(null);
+        return Buy.getBestMeleeFoodInInventory();
     }
 
     private Food getBestFoodAvailableInBank() {
-        return Arrays.stream(Food.values())
-                .filter(food -> Rs2Bank.count(food.getItemId()) > 0)
-                .max(Comparator.comparingInt(Food::getHealAmount))
-                .orElse(null);
+        return Buy.getBestMeleeFoodAvailableInBank();
     }
 
     private Food getBestOverallFood() {
-        return Arrays.stream(Food.values())
-                .max(Comparator.comparingInt(Food::getHealAmount))
-                .orElse(Food.SALMON);
+        return Buy.getBestOverallMeleeFood();
     }
 
     private int getFoodCountInInventory() {
-        return Arrays.stream(Food.values())
-                .mapToInt(food -> Rs2Inventory.itemQuantity(food.getItemId()))
-                .sum();
+        return Buy.getMeleeFoodCountInInventory();
     }
 
     private boolean shouldBankForNoFood(TrainingStage stage) {
@@ -1092,12 +1059,6 @@ public class MeleeScript
 
     public CombatAreas getTargetArea() {
         return this.resolveTrainingStage().area;
-    }
-
-    private void addIfPresent(List<String> items2, String item) {
-        if (item != null) {
-            items2.add(item);
-        }
     }
 
     public void shutdown() {
