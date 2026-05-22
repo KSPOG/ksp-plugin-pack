@@ -38,12 +38,16 @@ public class FireMakingScript extends Script
     private static final int FIRE_INTERACT_COOLDOWN_MS = 2_000;
     private static final int FIRE_START_GRACE_MS = 2_500;
     private static final int CAMPFIRE_DISTANCE = 6;
+    private static final int NEARBY_CAMPFIRE_SCAN_RADIUS = 12;
 
     private static final int NORMAL_FIRE_ID = 26185;
     private static final int FORESTERS_CAMPFIRE_ID = 49927;
 
     private static final String TINDERBOX_NAME = Buy.TINDERBOX_NAME;
-    private static final String BURN_PROMPT_TEXT = "How many would you like to burn?";
+    private static final String BURN_QUANTITY_PROMPT_TEXT = "How many would you like to burn?";
+    private static final String BURN_PRODUCT_PROMPT_TEXT = "What would you like to burn?";
+    private static final int PRODUCTION_WIDGET_GROUP = 270;
+    private static final int PRODUCTION_TITLE_CHILD = 5;
 
     private FireArea targetArea = FireArea.FM_AREA_DRAYNOR_BANK;
 
@@ -107,10 +111,18 @@ public class FireMakingScript extends Script
                 return;
             }
 
-            WorldPoint fireLocation = findActiveFireLocationInTargetArea();
+            WorldPoint fireLocation = findUsableFireLocation();
 
             if (!ensureSupplies(targetLogName, fireLocation != null))
             {
+                return;
+            }
+
+            fireLocation = findUsableFireLocation();
+
+            if (fireLocation != null)
+            {
+                useCampfire(targetLogId, fireLocation);
                 return;
             }
 
@@ -121,14 +133,6 @@ public class FireMakingScript extends Script
 
             if (!isIdleInTargetArea())
             {
-                return;
-            }
-
-            fireLocation = findActiveFireLocationInTargetArea();
-
-            if (fireLocation != null)
-            {
-                useCampfire(targetLogId, fireLocation);
                 return;
             }
 
@@ -364,11 +368,13 @@ public class FireMakingScript extends Script
             return;
         }
 
-        if (!isIdleInTargetArea())
+        if (!isIdleNearCampfire(fireLocation))
         {
             KspTaskDebug.throttled(log, debugLogging, "Firemaking", "not-idle", 2_000L,
-                    "waiting for idle before fire interaction | player={} moving={} animating={} interacting={} area={}",
+                    "waiting for idle before fire interaction | player={} fire={} distance={} moving={} animating={} interacting={} area={}",
                     Rs2Player.getWorldLocation(),
+                    fireLocation,
+                    Rs2Player.distanceTo(fireLocation),
                     Rs2Player.isMoving(),
                     Rs2Player.isAnimating(),
                     Rs2Player.isInteracting(),
@@ -630,7 +636,21 @@ public class FireMakingScript extends Script
 
     private boolean isBurnPromptOpen()
     {
-        return Rs2Widget.findWidget(BURN_PROMPT_TEXT, null, false) != null;
+        if (Rs2Widget.findWidget(BURN_QUANTITY_PROMPT_TEXT, null, false) != null
+                || Rs2Widget.findWidget(BURN_PRODUCT_PROMPT_TEXT, null, false) != null)
+        {
+            return true;
+        }
+
+        Widget productionTitle = Rs2Widget.getWidget(PRODUCTION_WIDGET_GROUP, PRODUCTION_TITLE_CHILD);
+        if (productionTitle == null || productionTitle.isHidden() || productionTitle.getText() == null)
+        {
+            return false;
+        }
+
+        String titleText = productionTitle.getText().toLowerCase();
+        return titleText.contains("what would you like to burn")
+                || titleText.contains("how many would you like to burn");
     }
 
     private boolean isWaitingForFireStart()
@@ -666,17 +686,71 @@ public class FireMakingScript extends Script
                 && !Rs2Player.isInteracting();
     }
 
-    private WorldPoint findActiveFireLocationInTargetArea()
+    private boolean isIdleNearCampfire(WorldPoint fireLocation)
     {
-        Rs2TileObjectModel fire = Microbot.getClientThread().invoke(() -> Microbot.getRs2TileObjectCache().query()
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        return playerLocation != null
+                && fireLocation != null
+                && Rs2Player.distanceTo(fireLocation) <= CAMPFIRE_DISTANCE
+                && !Rs2Player.isMoving()
+                && !Rs2Player.isAnimating()
+                && !Rs2Player.isInteracting();
+    }
+
+    private WorldPoint findUsableFireLocation()
+    {
+        Rs2TileObjectModel nearbyForestersCampfire = findNearestFireObjectNearPlayer(true);
+        if (nearbyForestersCampfire != null)
+        {
+            debug("Found nearby Forester campfire | loc={} player={} distance={}",
+                    nearbyForestersCampfire.getWorldLocation(),
+                    Rs2Player.getWorldLocation(),
+                    Rs2Player.distanceTo(nearbyForestersCampfire.getWorldLocation()));
+            return nearbyForestersCampfire.getWorldLocation();
+        }
+
+        Rs2TileObjectModel nearbyFire = findNearestFireObjectNearPlayer(false);
+        if (nearbyFire != null)
+        {
+            debug("Found nearby fire | id={} loc={} player={} distance={}",
+                    nearbyFire.getId(),
+                    nearbyFire.getWorldLocation(),
+                    Rs2Player.getWorldLocation(),
+                    Rs2Player.distanceTo(nearbyFire.getWorldLocation()));
+            return nearbyFire.getWorldLocation();
+        }
+
+        Rs2TileObjectModel areaFire = findNearestFireObjectInTargetArea();
+        return areaFire != null ? areaFire.getWorldLocation() : null;
+    }
+
+    private Rs2TileObjectModel findNearestFireObjectNearPlayer(boolean forestersOnly)
+    {
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+
+        if (playerLocation == null)
+        {
+            return null;
+        }
+
+        return Microbot.getClientThread().invoke(() -> Microbot.getRs2TileObjectCache().query()
+                .fromWorldView()
+                .within(playerLocation, NEARBY_CAMPFIRE_SCAN_RADIUS)
+                .where(object -> object.getWorldLocation() != null
+                        && isValidFireId(object.getId())
+                        && (!forestersOnly || object.getId() == FORESTERS_CAMPFIRE_ID))
+                .nearest(playerLocation, NEARBY_CAMPFIRE_SCAN_RADIUS));
+    }
+
+    private Rs2TileObjectModel findNearestFireObjectInTargetArea()
+    {
+        return Microbot.getClientThread().invoke(() -> Microbot.getRs2TileObjectCache().query()
                 .fromWorldView()
                 .within(getAreaCenter(), getAreaSearchRadius())
                 .where(object -> object.getWorldLocation() != null
                         && targetArea.toWorldArea().contains(object.getWorldLocation())
                         && isValidFireId(object.getId()))
                 .nearest(getAreaCenter(), getAreaSearchRadius()));
-
-        return fire != null ? fire.getWorldLocation() : null;
     }
 
     private Rs2TileObjectModel findFireObjectAtLocation(WorldPoint location)
