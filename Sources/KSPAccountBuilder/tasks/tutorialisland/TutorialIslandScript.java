@@ -1,5 +1,6 @@
 package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.tutorialisland;
 
+import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Actor;
 import net.runelite.api.Client;
 import net.runelite.api.ItemID;
@@ -14,6 +15,7 @@ import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel;
 import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2Antiban;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2AntibanSettings;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
@@ -49,6 +51,7 @@ import static net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue.ha
 import static net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue.isInDialogue;
 
 @Singleton
+@Slf4j
 public class TutorialIslandScript extends Script
 {
     private static final int LOOP_DELAY_MS = 600;
@@ -58,6 +61,8 @@ public class TutorialIslandScript extends Script
     private static final int QUEUE_LOGIN_SKIP_MS = 60000;
     private static final int QUEUED_LOGIN_EMAIL_PASSWORD_DELAY_MIN_MS = 1400;
     private static final int QUEUED_LOGIN_EMAIL_PASSWORD_DELAY_MAX_MS = 2600;
+    private static final long LOCAL_WALK_REFIRE_COOLDOWN_MS = 1800;
+    private static final long RAT_PEN_WALK_REFIRE_COOLDOWN_MS = 3500;
     private static final int NAME_CREATION_GROUP = 558;
     private static final int NAME_CREATION_CONTAINER_CHILD = 2;
     private static final int NAME_INPUT_CHILD = 7;
@@ -119,6 +124,8 @@ public class TutorialIslandScript extends Script
     };
 
     private long lastNameAttemptAtMs;
+    private long lastNameDebugAtMs;
+    private boolean debugLogging;
     private String lastGeneratedName = "None";
     private String lastCharacterAction = "Waiting";
     private String lastExperienceSelection = "None";
@@ -165,6 +172,16 @@ public class TutorialIslandScript extends Script
                 return;
             }
 
+            if (isDisplayNameWidgetOpen()) {
+                handleDisplayNameWidget();
+                return;
+            }
+
+            if (isCharacterCreationWidgetOpen()) {
+                randomizeCharacter();
+                return;
+            }
+
             if (isInStartArea() && isExperiencePromptOpen()) {
                 selectRandomExperienceOption();
                 return;
@@ -181,15 +198,14 @@ public class TutorialIslandScript extends Script
 
             switch (status) {
                 case NAME:
-                    if (isInStartArea() && isDisplayNameWidgetOpen() && !isNameAttemptCoolingDown()) {
-                        lastNameAttemptAtMs = System.currentTimeMillis();
-                        enterGeneratedName();
-                    }
+                    debug("Name status active but display-name widget was not detected | progress={} player={}",
+                            Microbot.getVarbitPlayerValue(281),
+                            Rs2Player.getWorldLocation());
                     break;
                 case CHARACTER:
-                    if (isInStartArea() && isCharacterCreationWidgetOpen()) {
-                        randomizeCharacter();
-                    }
+                    debug("Character status active but character-creation widget was not detected | progress={} player={}",
+                            Microbot.getVarbitPlayerValue(281),
+                            Rs2Player.getWorldLocation());
                     break;
                 case GETTING_STARTED:
                     gettingStarted();
@@ -225,6 +241,11 @@ public class TutorialIslandScript extends Script
         }, 0, LOOP_DELAY_MS, TimeUnit.MILLISECONDS);
 
         return true;
+    }
+
+    public void setDebugLogging(boolean debugLogging)
+    {
+        this.debugLogging = debugLogging;
     }
 
     private void calculateStatus()
@@ -295,10 +316,32 @@ public class TutorialIslandScript extends Script
         return System.currentTimeMillis() - lastNameAttemptAtMs < NAME_ATTEMPT_COOLDOWN_MS;
     }
 
+    private void handleDisplayNameWidget()
+    {
+        String currentInput = getCurrentDisplayNameInput();
+        String responseText = getDisplayNameResponseText();
+        debugDisplayNameState(currentInput, responseText);
+
+        if (isGeneratedNameAvailable(lastGeneratedName)) {
+            debug("Display name available, clicking Set name | name={} response={}", lastGeneratedName, responseText);
+            Rs2Widget.clickWidget(NAME_CREATION_GROUP, SET_NAME_BUTTON_CHILD);
+            sleepUntil(() -> !isDisplayNameWidgetOpen(), 5000);
+            return;
+        }
+
+        if (isNameAttemptCoolingDown()) {
+            return;
+        }
+
+        lastNameAttemptAtMs = System.currentTimeMillis();
+        enterGeneratedName();
+    }
+
     private void enterGeneratedName()
     {
         String name = generateDisplayName();
         lastGeneratedName = name;
+        debug("Trying generated display name | name={} previousInput={}", name, getCurrentDisplayNameInput());
 
         clearDisplayNameInput();
         sleep(randomDelay(180, 420));
@@ -313,7 +356,11 @@ public class TutorialIslandScript extends Script
         sleep(randomDelay(4200, 5600));
 
         if (isGeneratedNameAvailable(name)) {
+            debug("Display name accepted after lookup | name={} response={}", name, getDisplayNameResponseText());
             Rs2Widget.clickWidget(NAME_CREATION_GROUP, SET_NAME_BUTTON_CHILD);
+            sleepUntil(() -> !isDisplayNameWidgetOpen(), 5000);
+        } else {
+            debug("Display name was not accepted yet | name={} response={}", name, getDisplayNameResponseText());
         }
     }
 
@@ -347,14 +394,56 @@ public class TutorialIslandScript extends Script
 
     private boolean isGeneratedNameAvailable(String name)
     {
-        Widget responseWidget = Rs2Widget.getWidget(NAME_CREATION_GROUP, NAME_RESPONSE_TEXT_CHILD);
-
-        if (responseWidget == null || responseWidget.getText() == null) {
+        if (name == null || name.isEmpty() || "None".equals(name)) {
             return false;
         }
 
-        String responseText = Rs2UiHelper.stripColTags(responseWidget.getText());
-        return responseText.startsWith("Great! The display name " + name + " is available");
+        String responseText = getDisplayNameResponseText();
+        if (responseText.isEmpty()) {
+            return false;
+        }
+
+        String normalizedResponse = responseText.toLowerCase(Locale.ENGLISH);
+        if (normalizedResponse.contains("not available")
+                || normalizedResponse.contains("unavailable")
+                || normalizedResponse.contains("already taken")) {
+            return false;
+        }
+
+        return normalizedResponse.contains(name.toLowerCase(Locale.ENGLISH))
+                && normalizedResponse.contains("available");
+    }
+
+    private String getDisplayNameResponseText()
+    {
+        Widget responseWidget = Rs2Widget.getWidget(NAME_CREATION_GROUP, NAME_RESPONSE_TEXT_CHILD);
+
+        if (responseWidget == null || responseWidget.getText() == null) {
+            return "";
+        }
+
+        return Rs2UiHelper.stripColTags(responseWidget.getText()).trim();
+    }
+
+    private void debugDisplayNameState(String currentInput, String responseText)
+    {
+        if (!debugLogging) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        if (now - lastNameDebugAtMs < 2000) {
+            return;
+        }
+
+        lastNameDebugAtMs = now;
+        debug("Display-name widget | input={} lastGenerated={} response={} cooldown={} player={} progress={}",
+                currentInput,
+                lastGeneratedName,
+                responseText,
+                isNameAttemptCoolingDown(),
+                Rs2Player.getWorldLocation(),
+                Microbot.getVarbitPlayerValue(281));
     }
 
     private void randomizeCharacter()
@@ -623,7 +712,7 @@ public class TutorialIslandScript extends Script
             closeEquipmentStats();
             walkAndTalk(npc);
         } else if (progress == 500) {
-            Rs2Walker.walkTo(new WorldPoint(3111, 9526, Rs2Player.getWorldLocation().getPlane()));
+            walkLocal("combat-ladder", new WorldPoint(3111, 9526, Rs2Player.getWorldLocation().getPlane()), 3);
             Rs2Player.waitForWalking();
             Microbot.getClientThread().invoke(() -> Microbot.getRs2TileObjectCache().query().withName("Ladder").interact("Climb-up"));
             sleepUntil(() -> Microbot.getVarbitPlayerValue(281) != 500);
@@ -682,7 +771,7 @@ public class TutorialIslandScript extends Script
         } else if (progress == 525 || progress == 530) {
             closePollOrOptionsWidget();
             if (npc != null) {
-                Rs2Walker.walkTo(npc.getWorldLocation(), 3);
+                walkLocal("account-guide", npc.getWorldLocation(), 3);
                 Rs2Player.waitForWalking();
                 walkAndTalk(npc);
             }
@@ -724,7 +813,7 @@ public class TutorialIslandScript extends Script
         if (progress == 610 || progress == 620) {
             WorldPoint targetPoint = npc != null ? npc.getWorldLocation() : randomPoint(TUTORIAL_END_AREA);
             if (Rs2Player.distanceTo(targetPoint) > 8) {
-                Rs2Walker.walkTo(targetPoint, 8);
+                walkLocal("mage-guide", targetPoint, 8);
             } else {
                 walkAndTalk(npc);
             }
@@ -1030,6 +1119,7 @@ public class TutorialIslandScript extends Script
         ownFireLocation = null;
         lastQueueLoginAttemptAtMs = 0L;
         lastNameAttemptAtMs = 0L;
+        lastNameDebugAtMs = 0L;
         lastGeneratedName = "None";
         lastCharacterAction = "Waiting";
         lastExperienceSelection = "None";
@@ -1059,7 +1149,7 @@ public class TutorialIslandScript extends Script
         }
 
         if (playerLocation.distanceTo(npcLocation) > reach) {
-            Rs2Walker.walkTo(npcLocation, reach);
+            walkLocal("npc-" + npcLocation.getX() + "-" + npcLocation.getY(), npcLocation, reach);
             Rs2Player.waitForWalking();
             return false;
         }
@@ -1360,9 +1450,35 @@ public class TutorialIslandScript extends Script
             return true;
         }
 
-        Rs2Walker.walkTo(randomPoint(area), 3);
+        if (area == RAT_PIT_AREA) {
+            KspWalkerGuard.walkToDestination(
+                    "tutorial-rat-pen",
+                    () -> randomPoint(RAT_PIT_AREA),
+                    RAT_PIT_AREA::contains,
+                    3,
+                    RAT_PEN_WALK_REFIRE_COOLDOWN_MS);
+        } else {
+            walkLocal("area-" + area.getX() + "-" + area.getY(), centerPoint(area), 3);
+        }
         Rs2Player.waitForWalking();
         return false;
+    }
+
+    private boolean walkLocal(String key, WorldPoint target, int arriveDistance)
+    {
+        return KspWalkerGuard.walkFastCanvasToPoint(
+                "tutorial-" + key,
+                target,
+                arriveDistance,
+                LOCAL_WALK_REFIRE_COOLDOWN_MS);
+    }
+
+    private WorldPoint centerPoint(WorldArea area)
+    {
+        return new WorldPoint(
+                area.getX() + area.getWidth() / 2,
+                area.getY() + area.getHeight() / 2,
+                area.getPlane());
     }
 
     private WorldPoint randomPoint(WorldArea area)
@@ -1403,6 +1519,13 @@ public class TutorialIslandScript extends Script
     {
         super.shutdown();
         Rs2Antiban.resetAntibanSettings();
+    }
+
+    private void debug(String message, Object... args)
+    {
+        if (debugLogging) {
+            log.info("[KSP Tutorial] " + message, args);
+        }
     }
 
     public String getLastGeneratedName()

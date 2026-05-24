@@ -6,6 +6,7 @@ public enum KspTrainSingleSkillTask
     MINING("Mining"),
     WOODCUTTING("Woodcutting"),
     FIREMAKING("Firemaking"),
+    FISHING("Fishing"),
     MELEE("Melee"),
     GE_SELL("GE Sell"),
     GE_BUY("GE Buy"),

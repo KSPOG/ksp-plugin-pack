@@ -12,7 +12,7 @@ import javax.inject.Inject;
 
 @PluginDescriptor(
         name = PluginConstants.KSP + "Account Builder",
-        description = "Skeleton plugin for KSP account builder automation",
+        description = "Will automatically build a F2P Main",
         tags = {"microbot", "ksp", "account", "builder"},
         authors = {"KSP"},
         version = KspAccountBuilderPlugin.VERSION,
@@ -24,7 +24,7 @@ import javax.inject.Inject;
 @SuppressWarnings("unused") // Loaded dynamically by the hub build/plugin discovery process.
 public class KspAccountBuilderPlugin extends Plugin
 {
-    public static final String VERSION = "1.4.24";
+    public static final String VERSION = "1.4.30";
 
     @Inject
     private KspAccountBuilderScript script;

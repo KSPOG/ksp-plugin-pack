@@ -36,6 +36,15 @@ public final class Buy
     public static final String HAMMER_NAME = SmithTool.HAMMER.getDisplayName();
     public static final int HAMMER_ITEM_ID = SmithTool.HAMMER.getItemId();
     public static final String TINDERBOX_NAME = "Tinderbox";
+    public static final String FISHING_BAIT_NAME = "Fishing bait";
+    public static final int FISHING_BAIT_BUY_QUANTITY = 500;
+    public static final String FEATHER_NAME = "Feather";
+    public static final int FEATHER_BUY_QUANTITY = 1000;
+    public static final String SMALL_FISHING_NET_NAME = "Small fishing net";
+    public static final String FISHING_ROD_NAME = "Fishing rod";
+    public static final String FLY_FISHING_ROD_NAME = "Fly fishing rod";
+    public static final String HARPOON_NAME = "Harpoon";
+    public static final String LOBSTER_POT_NAME = "Lobster pot";
 
     public static final int MELEE_TARGET_FOOD_COUNT = 5;
     public static final int MELEE_FOOD_PURCHASE_QUANTITY = 20;
@@ -96,7 +105,19 @@ public final class Buy
                 || !hasNamedItemAnywhere(resolveDesiredAxeNameForBuy())
                 || !hasHammerAnywhere()
                 || !hasTinderboxAnywhere()
+                || hasFishingBuyRequirementMissingInBank()
                 || isSmithingOreBuyMissingAnywhere();
+    }
+
+    public static boolean hasFishingBuyRequirementMissingInBank()
+    {
+        return Rs2Bank.count(FISHING_BAIT_NAME) <= 0
+                || Rs2Bank.count(FEATHER_NAME) <= 0
+                || Rs2Bank.count(SMALL_FISHING_NET_NAME) <= 0
+                || Rs2Bank.count(FISHING_ROD_NAME) <= 0
+                || Rs2Bank.count(FLY_FISHING_ROD_NAME) <= 0
+                || Rs2Bank.count(HARPOON_NAME) <= 0
+                || Rs2Bank.count(LOBSTER_POT_NAME) <= 0;
     }
 
     public static boolean isSmithingOreBuyMissingAnywhere()

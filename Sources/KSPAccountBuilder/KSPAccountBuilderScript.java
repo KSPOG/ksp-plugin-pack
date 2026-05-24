@@ -9,6 +9,8 @@ import net.runelite.client.plugins.microbot.accountselector.AutoLoginPlugin;
 import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.equipment.weapon.Weapons;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.meleescript.MeleeScript;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fishing.fishingscript.FishingScript;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fishing.levelreqfishing.LevelReqs;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.firemakingscript.FireMakingScript;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.fmarea.FireArea;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.loglevels.LogsLvl;
@@ -27,6 +29,7 @@ import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.sme
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smelting.smeltarea.SmeltArea;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smelting.smeltscript.SmeltScript;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.tutorialisland.TutorialIslandScript;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.util.autologin.AutoLoginScript;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.woodcutting.treeareas.TreeAreas;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.woodcutting.woodcuttingscript.WoodCuttingScript;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2Antiban;
@@ -36,7 +39,6 @@ import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
-import net.runelite.client.plugins.microbot.util.security.Login;
 import net.runelite.client.plugins.microbot.util.security.LoginManager;
 import net.runelite.client.plugins.microbot.util.tabs.Rs2Tab;
 import net.runelite.client.ui.ClientUI;
@@ -51,14 +53,13 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class KspAccountBuilderScript extends Script
 {
-    private static final int[] SAFE_F2P_LOGIN_WORLDS = {301, 308, 316, 326, 335};
-
     private enum BuilderTask
     {
         TUTORIAL_ISLAND,
         MINING,
         WOODCUTTING,
         FIREMAKING,
+        FISHING,
         MELEE,
         GE_SELL,
         GE_BUY,
@@ -78,6 +79,9 @@ public class KspAccountBuilderScript extends Script
     private FireMakingScript fireMakingScript;
 
     @Inject
+    private FishingScript fishingScript;
+
+    @Inject
     private MeleeScript meleeScript;
 
     @Inject
@@ -94,6 +98,9 @@ public class KspAccountBuilderScript extends Script
 
     @Inject
     private TutorialIslandScript tutorialIslandScript;
+
+    @Inject
+    private AutoLoginScript autoLoginScript;
 
     @Getter
     private BuilderTask currentTask = getRandomTaskExcluding(null);
@@ -123,14 +130,18 @@ public class KspAccountBuilderScript extends Script
         shutdown();
         this.config = config;
         this.debugEnabled = config.debugLogging();
+        breakActive = false;
+        startAutoLoginHelper();
         miningScript.setDebugLogging(debugEnabled);
         woodCuttingScript.setDebugLogging(debugEnabled);
         fireMakingScript.setDebugLogging(debugEnabled);
+        fishingScript.setDebugLogging(debugEnabled);
         meleeScript.setDebugLogging(debugEnabled);
         buyScript.setDebugLogging(debugEnabled);
         sellScript.setDebugLogging(debugEnabled);
         smithScript.setDebugLogging(debugEnabled);
         smeltScript.setDebugLogging(debugEnabled);
+        tutorialIslandScript.setDebugLogging(debugEnabled);
         applyAntibanSettings();
 
         currentTask = resolveStartingTask();
@@ -160,11 +171,14 @@ public class KspAccountBuilderScript extends Script
             miningScript.setDebugLogging(debugEnabled);
             woodCuttingScript.setDebugLogging(debugEnabled);
             fireMakingScript.setDebugLogging(debugEnabled);
+            fishingScript.setDebugLogging(debugEnabled);
             meleeScript.setDebugLogging(debugEnabled);
             buyScript.setDebugLogging(debugEnabled);
             sellScript.setDebugLogging(debugEnabled);
             smithScript.setDebugLogging(debugEnabled);
             smeltScript.setDebugLogging(debugEnabled);
+            tutorialIslandScript.setDebugLogging(debugEnabled);
+            autoLoginScript.setDebugLogging(debugEnabled);
 
             processTimers();
             updateWindowTitle();
@@ -205,6 +219,7 @@ public class KspAccountBuilderScript extends Script
                 miningScript.shutdown();
                 woodCuttingScript.shutdown();
                 fireMakingScript.shutdown();
+                fishingScript.shutdown();
                 meleeScript.shutdown();
                 buyScript.shutdown();
                 sellScript.shutdown();
@@ -262,6 +277,7 @@ public class KspAccountBuilderScript extends Script
             miningScript.shutdown();
             woodCuttingScript.shutdown();
             fireMakingScript.shutdown();
+            fishingScript.shutdown();
             meleeScript.shutdown();
             buyScript.shutdown();
             sellScript.shutdown();
@@ -278,6 +294,17 @@ public class KspAccountBuilderScript extends Script
             awaitingActivitySwitchTimerStart = true;
             nextActivitySwitchAtMillis = -1L;
         }
+    }
+
+    private void startAutoLoginHelper()
+    {
+        if (autoLoginScript == null)
+        {
+            return;
+        }
+
+        autoLoginScript.setDebugLogging(debugEnabled);
+        autoLoginScript.run(() -> !breakActive);
     }
 
     private void runAccountBuilderCycle()
@@ -342,6 +369,7 @@ public class KspAccountBuilderScript extends Script
             miningScript.shutdown();
             woodCuttingScript.shutdown();
             fireMakingScript.shutdown();
+            fishingScript.shutdown();
             meleeScript.shutdown();
             buyScript.shutdown();
             sellScript.shutdown();
@@ -353,6 +381,7 @@ public class KspAccountBuilderScript extends Script
         {
             woodCuttingScript.shutdown();
             fireMakingScript.shutdown();
+            fishingScript.shutdown();
             meleeScript.shutdown();
             buyScript.shutdown();
             sellScript.shutdown();
@@ -366,6 +395,7 @@ public class KspAccountBuilderScript extends Script
         {
             miningScript.shutdown();
             fireMakingScript.shutdown();
+            fishingScript.shutdown();
             meleeScript.shutdown();
             buyScript.shutdown();
             sellScript.shutdown();
@@ -378,6 +408,7 @@ public class KspAccountBuilderScript extends Script
         {
             miningScript.shutdown();
             woodCuttingScript.shutdown();
+            fishingScript.shutdown();
             meleeScript.shutdown();
             buyScript.shutdown();
             sellScript.shutdown();
@@ -386,11 +417,25 @@ public class KspAccountBuilderScript extends Script
             tutorialIslandScript.shutdown();
             taskStarted = fireMakingScript.run(FireArea.FM_AREA_DRAYNOR_BANK);
         }
+        else if (currentTask == BuilderTask.FISHING)
+        {
+            miningScript.shutdown();
+            woodCuttingScript.shutdown();
+            fireMakingScript.shutdown();
+            meleeScript.shutdown();
+            buyScript.shutdown();
+            sellScript.shutdown();
+            smithScript.shutdown();
+            smeltScript.shutdown();
+            tutorialIslandScript.shutdown();
+            taskStarted = fishingScript.run(resolveFishingStartArea());
+        }
         else if (currentTask == BuilderTask.MELEE)
         {
             miningScript.shutdown();
             woodCuttingScript.shutdown();
             fireMakingScript.shutdown();
+            fishingScript.shutdown();
             buyScript.shutdown();
             sellScript.shutdown();
             smithScript.shutdown();
@@ -403,6 +448,7 @@ public class KspAccountBuilderScript extends Script
             miningScript.shutdown();
             woodCuttingScript.shutdown();
             fireMakingScript.shutdown();
+            fishingScript.shutdown();
             meleeScript.shutdown();
             buyScript.shutdown();
             smithScript.shutdown();
@@ -415,6 +461,7 @@ public class KspAccountBuilderScript extends Script
             miningScript.shutdown();
             woodCuttingScript.shutdown();
             fireMakingScript.shutdown();
+            fishingScript.shutdown();
             meleeScript.shutdown();
             sellScript.shutdown();
             smithScript.shutdown();
@@ -427,6 +474,7 @@ public class KspAccountBuilderScript extends Script
             miningScript.shutdown();
             woodCuttingScript.shutdown();
             fireMakingScript.shutdown();
+            fishingScript.shutdown();
             meleeScript.shutdown();
             buyScript.shutdown();
             sellScript.shutdown();
@@ -439,6 +487,7 @@ public class KspAccountBuilderScript extends Script
             miningScript.shutdown();
             woodCuttingScript.shutdown();
             fireMakingScript.shutdown();
+            fishingScript.shutdown();
             meleeScript.shutdown();
             buyScript.shutdown();
             sellScript.shutdown();
@@ -551,6 +600,11 @@ public class KspAccountBuilderScript extends Script
             return BuilderTask.FIREMAKING;
         }
 
+        if (config.singleSkillTask() == KspTrainSingleSkillTask.FISHING)
+        {
+            return BuilderTask.FISHING;
+        }
+
         if (config.singleSkillTask() == KspTrainSingleSkillTask.GE_SELL)
         {
             return BuilderTask.GE_SELL;
@@ -608,6 +662,11 @@ public class KspAccountBuilderScript extends Script
         return TreeAreas.REGULAR_TREE_VARROCK_WEST;
     }
 
+    private net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fishing.areas.Areas resolveFishingStartArea()
+    {
+        return net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fishing.areas.Areas.SHRIMP_ANCHOVIES;
+    }
+
     private BarLevels resolveSmeltingFallbackBar()
     {
         return BarLevels.BRONZE;
@@ -633,6 +692,11 @@ public class KspAccountBuilderScript extends Script
         if (task == BuilderTask.FIREMAKING)
         {
             return hasAnyFiremakingResourcesAvailable();
+        }
+
+        if (task == BuilderTask.FISHING)
+        {
+            return hasAnyFishingResourcesAvailable();
         }
 
         if (task == BuilderTask.MELEE)
@@ -757,6 +821,27 @@ public class KspAccountBuilderScript extends Script
         }
 
         return false;
+    }
+
+    private boolean hasAnyFishingResourcesAvailable()
+    {
+        int fishingLevel = Microbot.getClient().getRealSkillLevel(Skill.FISHING);
+        LevelReqs targetFish = LevelReqs.bestForFishingLevel(fishingLevel);
+        net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fishing.needed.Inventory requiredInventory =
+                net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fishing.needed.Inventory.valueOf(targetFish.name());
+
+        for (String itemName : requiredInventory.getRequiredItems())
+        {
+            int available = Rs2Inventory.count(itemName)
+                    + Rs2Inventory.count(itemName, true)
+                    + Math.max(0, Rs2Bank.count(itemName));
+            if (available <= 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private boolean hasAnySmithingResourcesAvailable()
@@ -984,6 +1069,12 @@ public class KspAccountBuilderScript extends Script
             return;
         }
 
+        if (currentTask == BuilderTask.FISHING)
+        {
+            fishingScript.shutdown();
+            return;
+        }
+
         if (currentTask == BuilderTask.MELEE)
         {
             meleeScript.shutdown();
@@ -1031,6 +1122,10 @@ public class KspAccountBuilderScript extends Script
         else if (currentTask == BuilderTask.FIREMAKING)
         {
             fireMakingScript.shutdown();
+        }
+        else if (currentTask == BuilderTask.FISHING)
+        {
+            fishingScript.shutdown();
         }
         else if (currentTask == BuilderTask.MELEE)
         {
@@ -1264,6 +1359,11 @@ public class KspAccountBuilderScript extends Script
             return fireMakingScript.getTargetArea().toWorldArea().contains(Rs2Player.getWorldLocation());
         }
 
+        if (currentTask == BuilderTask.FISHING)
+        {
+            return fishingScript.getTargetArea().toWorldArea().contains(Rs2Player.getWorldLocation());
+        }
+
         if (currentTask == BuilderTask.MELEE)
         {
             return meleeScript.getTargetArea().contains(Rs2Player.getWorldLocation());
@@ -1421,13 +1521,9 @@ public class KspAccountBuilderScript extends Script
 
         try
         {
-            boolean isMemberProfile = LoginManager.getActiveProfile().isMember();
-            int world = isMemberProfile
-                    ? Login.getRandomWorld(true)
-                    : SAFE_F2P_LOGIN_WORLDS[ThreadLocalRandom.current().nextInt(SAFE_F2P_LOGIN_WORLDS.length)];
-
-            new Login(world);
-            debug("Triggered manual login after break");
+            int world = LoginManager.getRandomWorld(false);
+            boolean loginStarted = LoginManager.login(world);
+            debug("Triggered manual F2P login after break | world={} started={}", world, loginStarted);
         }
         catch (Exception ex)
         {
@@ -1545,6 +1641,11 @@ public class KspAccountBuilderScript extends Script
             fireMakingScript.shutdown();
         }
 
+        if (fishingScript != null)
+        {
+            fishingScript.shutdown();
+        }
+
         if (meleeScript != null)
         {
             meleeScript.shutdown();
@@ -1568,6 +1669,11 @@ public class KspAccountBuilderScript extends Script
         if (smeltScript != null)
         {
             smeltScript.shutdown();
+        }
+
+        if (autoLoginScript != null)
+        {
+            autoLoginScript.shutdown();
         }
 
         Rs2Antiban.resetAntibanSettings();

@@ -8,6 +8,7 @@ public enum KspDeveloperTask {
     TUTORIAL_ISLAND,
     MINING,
     WOODCUTTING,
+    FISHING,
     MELEE,
     GE_SELL,
     GE_BUY,

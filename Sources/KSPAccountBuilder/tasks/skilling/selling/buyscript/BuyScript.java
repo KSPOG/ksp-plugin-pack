@@ -50,6 +50,7 @@ public class BuyScript extends Script {
 
     private static final String COPPER_ORE_NAME = Buy.COPPER_ORE_NAME;
     private static final String TIN_ORE_NAME = Buy.TIN_ORE_NAME;
+    private static final String COINS_NAME = Buy.COINS_NAME;
 
     private static final String[] PICKAXE_NAMES = Buy.PICKAXE_NAMES;
 
@@ -58,6 +59,15 @@ public class BuyScript extends Script {
     private static final String HAMMER_NAME = Buy.HAMMER_NAME;
     private static final int HAMMER_ITEM_ID = Buy.HAMMER_ITEM_ID;
     private static final String TINDERBOX_NAME = Buy.TINDERBOX_NAME;
+    private static final String FISHING_BAIT_NAME = Buy.FISHING_BAIT_NAME;
+    private static final int FISHING_BAIT_BUY_QUANTITY = Buy.FISHING_BAIT_BUY_QUANTITY;
+    private static final String FEATHER_NAME = Buy.FEATHER_NAME;
+    private static final int FEATHER_BUY_QUANTITY = Buy.FEATHER_BUY_QUANTITY;
+    private static final String SMALL_FISHING_NET_NAME = Buy.SMALL_FISHING_NET_NAME;
+    private static final String FISHING_ROD_NAME = Buy.FISHING_ROD_NAME;
+    private static final String FLY_FISHING_ROD_NAME = Buy.FLY_FISHING_ROD_NAME;
+    private static final String HARPOON_NAME = Buy.HARPOON_NAME;
+    private static final String LOBSTER_POT_NAME = Buy.LOBSTER_POT_NAME;
 
     private GEArea targetArea = GEArea.GRAND_EXCHANGE;
     private boolean debugLogging;
@@ -70,13 +80,22 @@ public class BuyScript extends Script {
     private boolean bankHasDesiredAxe;
     private boolean bankHasHammer;
     private boolean bankHasTinderbox;
+    private boolean bankHasSmallFishingNet;
+    private boolean bankHasFishingRod;
+    private boolean bankHasFlyFishingRod;
+    private boolean bankHasHarpoon;
+    private boolean bankHasLobsterPot;
+    private int bankFishingBaitCount;
+    private int bankFeatherCount;
 
     private String lastDesiredPickaxe;
     private String lastDesiredAxe;
 
     private final List<String> pendingMissingToolBuys = new ArrayList<>();
     private final List<String> pendingOreBuys = new ArrayList<>();
+    private final List<String> pendingFishingSupplyBuys = new ArrayList<>();
     private final Map<String, Integer> pendingOreBuyQuantities = new HashMap<>();
+    private final Map<String, Integer> pendingFishingSupplyBuyQuantities = new HashMap<>();
 
     private int requiredBronzeBars;
     private int copperOreNeeded;
@@ -85,6 +104,7 @@ public class BuyScript extends Script {
     private int bankTinOreCount;
 
     private boolean complete;
+    private boolean insufficientCoinsForMissingBuys;
 
     public void setDebugLogging(boolean debugLogging) {
         this.debugLogging = debugLogging;
@@ -94,6 +114,7 @@ public class BuyScript extends Script {
         this.shutdown();
         this.targetArea = area;
         this.complete = false;
+        this.insufficientCoinsForMissingBuys = false;
 
         Microbot.status = "Walking to GE";
 
@@ -103,7 +124,9 @@ public class BuyScript extends Script {
             }
 
             if (this.complete) {
-                Microbot.status = "GE Buy Complete";
+                Microbot.status = this.insufficientCoinsForMissingBuys
+                        ? "Not enough GP for GE Buy"
+                        : "GE Buy Complete";
                 return;
             }
 
@@ -116,7 +139,7 @@ public class BuyScript extends Script {
                     "GE Buy",
                     "loop",
                     5_000L,
-                    "loop | desiredPickaxe={} desiredAxe={} audited={} bankHasPickaxe={} bankHasAxe={} bankHasHammer={} bankHasTinderbox={} pendingToolBuys={} pendingOreBuys={} barsNeeded={} copperNeeded={} tinNeeded={} complete={} player={} bankOpen={} geOpen={} offerScreen={} slots={} coins={}",
+                    "loop | desiredPickaxe={} desiredAxe={} audited={} bankHasPickaxe={} bankHasAxe={} bankHasHammer={} bankHasTinderbox={} baitBank={} feathersBank={} bankHasNet={} bankHasRod={} bankHasFlyRod={} pendingToolBuys={} pendingSupplyBuys={} pendingOreBuys={} barsNeeded={} copperNeeded={} tinNeeded={} complete={} player={} bankOpen={} geOpen={} offerScreen={} slots={} coins={}",
                     desiredPickaxe,
                     desiredAxe,
                     this.bankToolsAudited,
@@ -124,7 +147,13 @@ public class BuyScript extends Script {
                     this.bankHasDesiredAxe,
                     this.bankHasHammer,
                     this.bankHasTinderbox,
+                    this.bankFishingBaitCount,
+                    this.bankFeatherCount,
+                    this.bankHasSmallFishingNet,
+                    this.bankHasFishingRod,
+                    this.bankHasFlyFishingRod,
                     this.pendingMissingToolBuys,
+                    this.pendingFishingSupplyBuys,
                     this.pendingOreBuys,
                     this.requiredBronzeBars,
                     this.copperOreNeeded,
@@ -183,6 +212,10 @@ public class BuyScript extends Script {
                 return;
             }
 
+            if (this.handlePendingFishingSupplyBuys()) {
+                return;
+            }
+
             if (this.handlePendingOreBuys()) {
                 return;
             }
@@ -192,7 +225,9 @@ public class BuyScript extends Script {
 
             if (missingTool == null
                     && this.pendingMissingToolBuys.isEmpty()
+                    && this.pendingFishingSupplyBuys.isEmpty()
                     && this.pendingOreBuys.isEmpty()
+                    && !this.needsFishingSupplies()
                     && !this.needsSmithingOres()) {
                 Microbot.status = "GE Buy Complete";
                 this.complete = true;
@@ -206,7 +241,11 @@ public class BuyScript extends Script {
             }
 
             if (this.shouldPrepareExchangeInventory(outdatedInventoryTool, missingTool, desiredPickaxe, desiredAxe)) {
-                this.prepareExchangeInventory(desiredPickaxe, desiredAxe, missingTool != null || this.needsSmithingOres());
+                this.prepareExchangeInventory(
+                        desiredPickaxe,
+                        desiredAxe,
+                        missingTool != null || this.needsFishingSupplies() || this.needsSmithingOres()
+                );
                 return;
             }
 
@@ -215,6 +254,7 @@ public class BuyScript extends Script {
             }
 
             this.syncPendingMissingToolBuysFromActiveOffers(desiredPickaxe, desiredAxe);
+            this.syncPendingFishingSupplyBuysFromActiveOffers();
             this.syncPendingOreBuysFromActiveOffers();
 
             this.processAvailableExchangeSlots(desiredPickaxe, desiredAxe);
@@ -261,6 +301,7 @@ public class BuyScript extends Script {
         this.calculateSmithingOreNeeds();
 
         boolean hasPendingBuys = !this.pendingMissingToolBuys.isEmpty()
+                || !this.pendingFishingSupplyBuys.isEmpty()
                 || !this.pendingOreBuys.isEmpty()
                 || Rs2GrandExchange.hasBoughtOffer();
 
@@ -270,12 +311,18 @@ public class BuyScript extends Script {
 
         Microbot.status = "GE Buy Skipped";
         this.complete = true;
+        this.insufficientCoinsForMissingBuys = false;
         this.debug(
-                "Skipping GE buy; nothing missing | desiredPickaxe={} desiredAxe={} hammer={} tinderbox={} copperNeeded={} tinNeeded={} bankOpen={}",
+                "Skipping GE buy; nothing missing | desiredPickaxe={} desiredAxe={} hammer={} tinderbox={} baitBank={} feathersBank={} net={} rod={} flyRod={} copperNeeded={} tinNeeded={} bankOpen={}",
                 desiredPickaxe,
                 desiredAxe,
                 this.bankHasHammer,
                 this.bankHasTinderbox,
+                this.bankFishingBaitCount,
+                this.bankFeatherCount,
+                this.bankHasSmallFishingNet,
+                this.bankHasFishingRod,
+                this.bankHasFlyFishingRod,
                 this.copperOreNeeded,
                 this.tinOreNeeded,
                 Rs2Bank.isOpen()
@@ -288,7 +335,99 @@ public class BuyScript extends Script {
                 || !this.hasToolAnywhere(desiredAxe)
                 || !this.hasHammerAnywhere()
                 || !this.hasTinderboxAnywhere()
+                || this.hasFishingBuyRequirementMissing()
                 || this.hasSmithingOreNeed();
+    }
+
+    private boolean ensureEnoughCoinsForMissingBuys(String desiredPickaxe, String desiredAxe) {
+        if (!this.pendingMissingToolBuys.isEmpty()
+                || !this.pendingFishingSupplyBuys.isEmpty()
+                || !this.pendingOreBuys.isEmpty()
+                || Rs2GrandExchange.hasBoughtOffer()) {
+            return true;
+        }
+
+        BuyBudget budget = this.calculateMissingBuyBudget(desiredPickaxe, desiredAxe);
+
+        this.debug(
+                "GE buy budget | bankCoins={} inventoryCoins={} availableCoins={} estimatedCost={} enough={} missing={}",
+                budget.bankCoins,
+                budget.inventoryCoins,
+                budget.getAvailableCoins(),
+                budget.estimatedCost,
+                budget.hasEnoughCoins(),
+                budget.getDetails()
+        );
+
+        if (budget.estimatedCost <= 0L || budget.hasEnoughCoins()) {
+            return true;
+        }
+
+        Microbot.status = "Not enough GP for GE Buy";
+        this.complete = true;
+        this.insufficientCoinsForMissingBuys = true;
+        this.bankToolsAudited = true;
+        return false;
+    }
+
+    private BuyBudget calculateMissingBuyBudget(String desiredPickaxe, String desiredAxe) {
+        BuyBudget budget = new BuyBudget(
+                Math.max(0, Rs2Bank.count(COINS_NAME)),
+                Math.max(0, Rs2Inventory.itemQuantity(995))
+        );
+
+        this.addToolToBudgetIfMissing(budget, desiredPickaxe);
+        this.addToolToBudgetIfMissing(budget, desiredAxe);
+        this.addToolToBudgetIfMissing(budget, HAMMER_NAME);
+        this.addToolToBudgetIfMissing(budget, TINDERBOX_NAME);
+        this.addToolToBudgetIfMissing(budget, SMALL_FISHING_NET_NAME);
+        this.addToolToBudgetIfMissing(budget, FISHING_ROD_NAME);
+        this.addToolToBudgetIfMissing(budget, FLY_FISHING_ROD_NAME);
+        this.addToolToBudgetIfMissing(budget, HARPOON_NAME);
+        this.addToolToBudgetIfMissing(budget, LOBSTER_POT_NAME);
+
+        this.addFishingSupplyToBudgetIfMissing(budget, FISHING_BAIT_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, FEATHER_NAME);
+        this.addOreToBudgetIfMissing(budget, COPPER_ORE_NAME);
+        this.addOreToBudgetIfMissing(budget, TIN_ORE_NAME);
+
+        return budget;
+    }
+
+    private void addToolToBudgetIfMissing(BuyBudget budget, String itemName) {
+        if (itemName == null || this.hasToolAnywhere(itemName) || this.isMissingToolBuyPending(itemName)) {
+            return;
+        }
+
+        this.addMissingBuyToBudget(budget, itemName, 1);
+    }
+
+    private void addFishingSupplyToBudgetIfMissing(BuyBudget budget, String itemName) {
+        int quantity = this.getFishingSupplyQuantityToBuy(itemName);
+
+        if (quantity <= 0 || this.isFishingSupplyBuyPending(itemName)) {
+            return;
+        }
+
+        this.addMissingBuyToBudget(budget, itemName, quantity);
+    }
+
+    private void addOreToBudgetIfMissing(BuyBudget budget, String itemName) {
+        int quantity = this.getOreQuantityToBuy(itemName);
+
+        if (quantity <= 0 || this.isOreBuyPending(itemName)) {
+            return;
+        }
+
+        this.addMissingBuyToBudget(budget, itemName, quantity);
+    }
+
+    private void addMissingBuyToBudget(BuyBudget budget, String itemName, int quantity) {
+        int unitPrice = this.getAdjustedBuyPrice(itemName);
+        long totalPrice = (long) Math.max(1, unitPrice) * (long) quantity;
+
+        budget.estimatedCost += totalPrice;
+        budget.addDetail(quantity, itemName, Math.max(1, unitPrice), totalPrice);
     }
 
     private void refreshBankAuditSnapshot(String desiredPickaxe, String desiredAxe) {
@@ -300,6 +439,13 @@ public class BuyScript extends Script {
         this.bankHasDesiredAxe = Rs2Bank.count(desiredAxe) > 0;
         this.bankHasHammer = this.hasItemIdInBank(HAMMER_ITEM_ID);
         this.bankHasTinderbox = Rs2Bank.count(TINDERBOX_NAME) > 0;
+        this.bankFishingBaitCount = Math.max(0, Rs2Bank.count(FISHING_BAIT_NAME));
+        this.bankFeatherCount = Math.max(0, Rs2Bank.count(FEATHER_NAME));
+        this.bankHasSmallFishingNet = Rs2Bank.count(SMALL_FISHING_NET_NAME) > 0;
+        this.bankHasFishingRod = Rs2Bank.count(FISHING_ROD_NAME) > 0;
+        this.bankHasFlyFishingRod = Rs2Bank.count(FLY_FISHING_ROD_NAME) > 0;
+        this.bankHasHarpoon = Rs2Bank.count(HARPOON_NAME) > 0;
+        this.bankHasLobsterPot = Rs2Bank.count(LOBSTER_POT_NAME) > 0;
         this.refreshCachedBankOreCounts();
         this.bankToolsAudited = true;
     }
@@ -318,7 +464,9 @@ public class BuyScript extends Script {
             return false;
         }
 
-        if ((missingTool != null || this.needsSmithingOres()) && Rs2Inventory.itemQuantity(995) > 0) {
+        boolean missingBuyItem = missingTool != null || this.needsFishingSupplies() || this.needsSmithingOres();
+
+        if (missingBuyItem && Rs2Inventory.itemQuantity(995) > 0) {
             return false;
         }
 
@@ -326,7 +474,7 @@ public class BuyScript extends Script {
             return true;
         }
 
-        return missingTool != null || this.needsSmithingOres();
+        return missingBuyItem;
     }
 
     private void prepareExchangeInventory(String desiredPickaxe, String desiredAxe, boolean needCoinsForBuying) {
@@ -373,26 +521,37 @@ public class BuyScript extends Script {
                 this.bankHasDesiredAxe,
                 needCoinsForBuying,
                 Rs2Inventory.itemQuantity(995),
-                Rs2Bank.count("Coins")
+                Rs2Bank.count(COINS_NAME)
         );
 
         if (!Rs2Inventory.isEmpty()) {
             Rs2Bank.depositAll();
             BuyScript.sleepUntil(Rs2Inventory::isEmpty, BANK_WAIT_TIMEOUT_MS);
+            this.refreshBankAuditSnapshot(desiredPickaxe, desiredAxe);
         }
 
         this.calculateSmithingOreNeeds();
 
         this.debug(
-                "Tool/Ore audit | hammerInBank={} tinderboxInBank={} barsNeeded={} copperNeeded={} tinNeeded={} pendingTools={} pendingOres={}",
+                "Tool/Ore/Fishing audit | hammerInBank={} tinderboxInBank={} baitBank={} feathersBank={} netInBank={} rodInBank={} flyRodInBank={} barsNeeded={} copperNeeded={} tinNeeded={} pendingTools={} pendingSupply={} pendingOres={}",
                 this.bankHasHammer,
                 this.bankHasTinderbox,
+                this.bankFishingBaitCount,
+                this.bankFeatherCount,
+                this.bankHasSmallFishingNet,
+                this.bankHasFishingRod,
+                this.bankHasFlyFishingRod,
                 this.requiredBronzeBars,
                 this.copperOreNeeded,
                 this.tinOreNeeded,
                 this.pendingMissingToolBuys,
+                this.pendingFishingSupplyBuys,
                 this.pendingOreBuys
         );
+
+        if (needCoinsForBuying && !this.ensureEnoughCoinsForMissingBuys(desiredPickaxe, desiredAxe)) {
+            return;
+        }
 
         if (!Rs2Bank.hasWithdrawAsNote()) {
             Rs2Bank.setWithdrawAsNote();
@@ -401,8 +560,8 @@ public class BuyScript extends Script {
 
         this.withdrawOutdatedToolsAsNotes(desiredPickaxe, desiredAxe);
 
-        if (needCoinsForBuying && Rs2Inventory.itemQuantity(995) <= 0 && Rs2Bank.count("Coins") > 0) {
-            Rs2Bank.withdrawAll("Coins");
+        if (needCoinsForBuying && Rs2Inventory.itemQuantity(995) <= 0 && Rs2Bank.count(COINS_NAME) > 0) {
+            Rs2Bank.withdrawAll(COINS_NAME);
             BuyScript.sleepUntil(() -> Rs2Inventory.itemQuantity(995) > 0, BANK_WAIT_TIMEOUT_MS);
         }
 
@@ -427,6 +586,20 @@ public class BuyScript extends Script {
         this.bankHasDesiredAxe = false;
         this.bankHasHammer = false;
         this.bankHasTinderbox = false;
+        this.bankHasSmallFishingNet = false;
+        this.bankHasFishingRod = false;
+        this.bankHasFlyFishingRod = false;
+        this.bankHasHarpoon = false;
+        this.bankHasLobsterPot = false;
+        this.bankFishingBaitCount = 0;
+        this.bankFeatherCount = 0;
+        this.bankHasSmallFishingNet = false;
+        this.bankHasFishingRod = false;
+        this.bankHasFlyFishingRod = false;
+        this.bankHasHarpoon = false;
+        this.bankHasLobsterPot = false;
+        this.bankFishingBaitCount = 0;
+        this.bankFeatherCount = 0;
 
         this.requiredBronzeBars = 0;
         this.copperOreNeeded = 0;
@@ -436,7 +609,9 @@ public class BuyScript extends Script {
 
         this.complete = false;
         this.pendingMissingToolBuys.clear();
+        this.pendingFishingSupplyBuys.clear();
         this.pendingOreBuys.clear();
+        this.pendingFishingSupplyBuyQuantities.clear();
         this.pendingOreBuyQuantities.clear();
     }
 
@@ -532,6 +707,87 @@ public class BuyScript extends Script {
         return 0;
     }
 
+    private boolean hasFishingBuyRequirementMissing() {
+        return this.getFishingSupplyQuantityToBuy(FISHING_BAIT_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(FEATHER_NAME) > 0
+                || !this.hasFishingToolInBank(SMALL_FISHING_NET_NAME)
+                || !this.hasFishingToolInBank(FISHING_ROD_NAME)
+                || !this.hasFishingToolInBank(FLY_FISHING_ROD_NAME)
+                || !this.hasFishingToolInBank(HARPOON_NAME)
+                || !this.hasFishingToolInBank(LOBSTER_POT_NAME);
+    }
+
+    private boolean needsFishingSupplies() {
+        return this.getNextFishingSupplyToBuy() != null;
+    }
+
+    private boolean handlePendingFishingSupplyBuys() {
+        this.clearSatisfiedPendingFishingSupplyBuys();
+
+        if (!this.hasFishingSupplyNeed() && this.pendingFishingSupplyBuys.isEmpty()) {
+            return false;
+        }
+
+        if (!this.ensureGrandExchangeOpen()) {
+            return true;
+        }
+
+        if (Rs2GrandExchange.isOfferScreenOpen()) {
+            Microbot.status = "Opening GE Overview";
+            this.returnToGrandExchangeOverview();
+            return true;
+        }
+
+        this.syncPendingFishingSupplyBuysFromActiveOffers();
+
+        if (this.hasCollectableFishingSupplyBuy()) {
+            Microbot.status = "Collecting fishing supplies";
+            this.markCompletedPendingFishingSupplyBuys();
+            Rs2GrandExchange.collectAllToBank();
+            BuyScript.sleepUntil(() -> !Rs2GrandExchange.hasBoughtOffer(), 5000);
+            this.clearSatisfiedPendingFishingSupplyBuys();
+            return true;
+        }
+
+        if (!this.pendingFishingSupplyBuys.isEmpty() && this.getNextFishingSupplyToBuy() == null) {
+            Microbot.status = "Waiting for fishing supplies";
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean hasFishingSupplyNeed() {
+        return this.getFishingSupplyQuantityToBuy(FISHING_BAIT_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(FEATHER_NAME) > 0;
+    }
+
+    private String getNextFishingSupplyToBuy() {
+        if (this.getFishingSupplyQuantityToBuy(FISHING_BAIT_NAME) > 0
+                && !this.isFishingSupplyBuyPending(FISHING_BAIT_NAME)) {
+            return FISHING_BAIT_NAME;
+        }
+
+        if (this.getFishingSupplyQuantityToBuy(FEATHER_NAME) > 0
+                && !this.isFishingSupplyBuyPending(FEATHER_NAME)) {
+            return FEATHER_NAME;
+        }
+
+        return null;
+    }
+
+    private int getFishingSupplyQuantityToBuy(String itemName) {
+        if (FISHING_BAIT_NAME.equalsIgnoreCase(itemName)) {
+            return this.bankFishingBaitCount <= 0 ? FISHING_BAIT_BUY_QUANTITY : 0;
+        }
+
+        if (FEATHER_NAME.equalsIgnoreCase(itemName)) {
+            return this.bankFeatherCount <= 0 ? FEATHER_BUY_QUANTITY : 0;
+        }
+
+        return 0;
+    }
+
     private boolean handlePendingOreBuys() {
         this.calculateSmithingOreNeeds();
         this.clearSatisfiedPendingOreBuys();
@@ -605,18 +861,23 @@ public class BuyScript extends Script {
                 "GE Buy",
                 "processing-slots",
                 5_000L,
-                "Processing GE slots | availableSlots={} pendingToolBuys={} pendingOreBuys={} desiredPickaxe={} desiredAxe={} copperNeeded={} tinNeeded={}",
+                "Processing GE slots | availableSlots={} pendingToolBuys={} pendingSupplyBuys={} pendingOreBuys={} desiredPickaxe={} desiredAxe={} baitBank={} feathersBank={} copperNeeded={} tinNeeded={}",
                 availableSlots,
                 this.pendingMissingToolBuys,
+                this.pendingFishingSupplyBuys,
                 this.pendingOreBuys,
                 desiredPickaxe,
                 desiredAxe,
+                this.bankFishingBaitCount,
+                this.bankFeatherCount,
                 this.copperOreNeeded,
                 this.tinOreNeeded
         );
 
         if (availableSlots <= 0) {
-            if (!this.pendingMissingToolBuys.isEmpty() || !this.pendingOreBuys.isEmpty()) {
+            if (!this.pendingMissingToolBuys.isEmpty()
+                    || !this.pendingFishingSupplyBuys.isEmpty()
+                    || !this.pendingOreBuys.isEmpty()) {
                 Microbot.status = "Waiting for GE buys";
             }
             return;
@@ -649,6 +910,19 @@ public class BuyScript extends Script {
                 continue;
             }
 
+            String fishingSupply = this.getNextFishingSupplyToBuy();
+            int fishingSupplyQuantity = this.getFishingSupplyQuantityToBuy(fishingSupply);
+
+            if (fishingSupply != null && fishingSupplyQuantity > 0) {
+                if (!this.placeFishingSupplyBuyOffer(fishingSupply, fishingSupplyQuantity)) {
+                    break;
+                }
+
+                placedOffer = true;
+                availableSlots = Rs2GrandExchange.getAvailableSlotsCount();
+                continue;
+            }
+
             this.calculateSmithingOreNeeds();
 
             String oreToBuy = this.getNextOreToBuy();
@@ -666,7 +940,10 @@ public class BuyScript extends Script {
             availableSlots = Rs2GrandExchange.getAvailableSlotsCount();
         }
 
-        if (!placedOffer && (!this.pendingMissingToolBuys.isEmpty() || !this.pendingOreBuys.isEmpty())) {
+        if (!placedOffer
+                && (!this.pendingMissingToolBuys.isEmpty()
+                || !this.pendingFishingSupplyBuys.isEmpty()
+                || !this.pendingOreBuys.isEmpty())) {
             Microbot.status = "Waiting for GE buys";
         }
     }
@@ -739,6 +1016,46 @@ public class BuyScript extends Script {
         return offered;
     }
 
+    private boolean placeFishingSupplyBuyOffer(String itemName, int quantity) {
+        if (itemName == null || quantity <= 0 || this.isFishingSupplyBuyPending(itemName)) {
+            return false;
+        }
+
+        this.waitForActionCooldown();
+
+        Microbot.status = "Buying " + quantity + "x " + itemName;
+
+        GrandExchangeRequest request = GrandExchangeRequest.builder()
+                .action(GrandExchangeAction.BUY)
+                .itemName(itemName)
+                .exact(true)
+                .quantity(quantity)
+                .percent(10)
+                .closeAfterCompletion(false)
+                .build();
+
+        this.waitForGrandExchangeOfferInput();
+
+        boolean offered = Rs2GrandExchange.processOffer(request);
+
+        this.debug(
+                "GE fishing-supply buy offer | item={} qty={} percent=10 offered={} slots={}",
+                itemName,
+                quantity,
+                offered,
+                Rs2GrandExchange.isOpen() ? Rs2GrandExchange.getAvailableSlotsCount() : -1
+        );
+
+        if (offered) {
+            this.lastActionAtMs = System.currentTimeMillis();
+            this.pendingFishingSupplyBuys.add(itemName);
+            this.pendingFishingSupplyBuyQuantities.merge(this.normalizeItemName(itemName), quantity, Integer::sum);
+            BuyScript.sleepUntil(() -> !Rs2GrandExchange.isOfferScreenOpen(), 2000);
+        }
+
+        return offered;
+    }
+
     private void syncPendingOreBuysFromActiveOffers() {
         for (GrandExchangeSlots slot : Rs2GrandExchange.getActiveOfferSlots()) {
             GrandExchangeOfferDetails details = Rs2GrandExchange.getOfferDetails(slot);
@@ -757,6 +1074,131 @@ public class BuyScript extends Script {
                 );
             }
         }
+    }
+
+    private void syncPendingFishingSupplyBuysFromActiveOffers() {
+        for (GrandExchangeSlots slot : Rs2GrandExchange.getActiveOfferSlots()) {
+            GrandExchangeOfferDetails details = Rs2GrandExchange.getOfferDetails(slot);
+
+            if (details == null || details.isSelling() || details.getItemName() == null) {
+                continue;
+            }
+
+            String itemName = details.getItemName();
+
+            if (this.isExpectedFishingSupply(itemName) && !this.isFishingSupplyBuyPending(itemName)) {
+                this.pendingFishingSupplyBuys.add(itemName);
+                this.pendingFishingSupplyBuyQuantities.putIfAbsent(
+                        this.normalizeItemName(itemName),
+                        Math.max(0, details.getTotalQuantity())
+                );
+            }
+        }
+    }
+
+    private boolean hasCollectableFishingSupplyBuy() {
+        for (GrandExchangeOfferDetails details : Rs2GrandExchange.getCompletedOffers().values()) {
+            if (this.isExpectedFishingSupplyBuy(details)) {
+                return true;
+            }
+        }
+
+        for (GrandExchangeSlots slot : Rs2GrandExchange.getActiveOfferSlots()) {
+            if (this.isCompletedExpectedFishingSupplyBuy(Rs2GrandExchange.getOfferDetails(slot))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean isExpectedFishingSupplyBuy(GrandExchangeOfferDetails details) {
+        return details != null
+                && !details.isSelling()
+                && this.isExpectedFishingSupply(details.getItemName());
+    }
+
+    private boolean isCompletedExpectedFishingSupplyBuy(GrandExchangeOfferDetails details) {
+        return this.isExpectedFishingSupplyBuy(details) && details.isCompleted();
+    }
+
+    private void markCompletedPendingFishingSupplyBuys() {
+        for (GrandExchangeOfferDetails details : Rs2GrandExchange.getCompletedOffers().values()) {
+            if (details == null || details.isSelling() || details.getItemName() == null) {
+                continue;
+            }
+
+            this.markPendingFishingSupplyBought(details.getItemName(), details.getQuantitySold());
+        }
+
+        for (GrandExchangeSlots slot : Rs2GrandExchange.getActiveOfferSlots()) {
+            GrandExchangeOfferDetails details = Rs2GrandExchange.getOfferDetails(slot);
+
+            if (details == null
+                    || details.isSelling()
+                    || !details.isCompleted()
+                    || details.getItemName() == null) {
+                continue;
+            }
+
+            this.markPendingFishingSupplyBought(details.getItemName(), details.getQuantitySold());
+        }
+    }
+
+    private boolean markPendingFishingSupplyBought(String itemName, int collectedQuantity) {
+        Iterator<String> iterator = this.pendingFishingSupplyBuys.iterator();
+
+        while (iterator.hasNext()) {
+            String pendingSupply = iterator.next();
+
+            if (!pendingSupply.equalsIgnoreCase(itemName)) {
+                continue;
+            }
+
+            this.cachePendingFishingSupplyBuy(pendingSupply, collectedQuantity);
+            iterator.remove();
+            return true;
+        }
+
+        return false;
+    }
+
+    private void cachePendingFishingSupplyBuy(String itemName, int collectedQuantity) {
+        int quantity = collectedQuantity > 0
+                ? collectedQuantity
+                : this.pendingFishingSupplyBuyQuantities.getOrDefault(this.normalizeItemName(itemName), 0);
+
+        if (quantity <= 0) {
+            return;
+        }
+
+        if (FISHING_BAIT_NAME.equalsIgnoreCase(itemName)) {
+            this.bankFishingBaitCount += quantity;
+        } else if (FEATHER_NAME.equalsIgnoreCase(itemName)) {
+            this.bankFeatherCount += quantity;
+        }
+
+        this.pendingFishingSupplyBuyQuantities.remove(this.normalizeItemName(itemName));
+        this.bankToolsAudited = true;
+    }
+
+    private void clearSatisfiedPendingFishingSupplyBuys() {
+        Iterator<String> iterator = this.pendingFishingSupplyBuys.iterator();
+
+        while (iterator.hasNext()) {
+            String pendingSupply = iterator.next();
+
+            if (this.isFishingSupplyStillNeeded(pendingSupply)) {
+                continue;
+            }
+
+            this.pendingFishingSupplyBuyQuantities.remove(this.normalizeItemName(pendingSupply));
+            iterator.remove();
+        }
+    }
+
+    private boolean isFishingSupplyStillNeeded(String itemName) {
+        return this.getFishingSupplyQuantityToBuy(itemName) > 0;
     }
 
     private void markCompletedPendingOreBuys() {
@@ -876,10 +1318,30 @@ public class BuyScript extends Script {
         return false;
     }
 
+    private boolean isFishingSupplyBuyPending(String itemName) {
+        if (itemName == null) {
+            return false;
+        }
+
+        for (String pendingSupply : this.pendingFishingSupplyBuys) {
+            if (pendingSupply.equalsIgnoreCase(itemName)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private boolean isExpectedOre(String itemName) {
         return itemName != null
                 && (itemName.equalsIgnoreCase(COPPER_ORE_NAME)
                 || itemName.equalsIgnoreCase(TIN_ORE_NAME));
+    }
+
+    private boolean isExpectedFishingSupply(String itemName) {
+        return itemName != null
+                && (itemName.equalsIgnoreCase(FISHING_BAIT_NAME)
+                || itemName.equalsIgnoreCase(FEATHER_NAME));
     }
 
     private String normalizeItemName(String itemName) {
@@ -1078,14 +1540,19 @@ public class BuyScript extends Script {
         this.syncPendingMissingToolBuysFromActiveOffers(desiredPickaxe, desiredAxe);
 
         boolean collectableToolBuy = this.hasCollectableMissingToolBuy(desiredPickaxe, desiredAxe);
+        boolean collectableFishingSupplyBuy = this.hasCollectableFishingSupplyBuy();
         boolean collectableOreBuy = this.hasCollectableOreBuy();
         boolean collectableSell = Rs2GrandExchange.hasSoldOffer();
 
-        if (collectableToolBuy || collectableOreBuy || collectableSell) {
+        if (collectableToolBuy || collectableFishingSupplyBuy || collectableOreBuy || collectableSell) {
             Microbot.status = "Collecting GE Offers";
 
             if (collectableToolBuy) {
                 this.markCompletedPendingToolBuys();
+            }
+
+            if (collectableFishingSupplyBuy) {
+                this.markCompletedPendingFishingSupplyBuys();
             }
 
             if (collectableOreBuy) {
@@ -1100,6 +1567,9 @@ public class BuyScript extends Script {
             );
 
             this.clearOwnedPendingMissingToolBuys();
+            if (collectableFishingSupplyBuy) {
+                this.clearSatisfiedPendingFishingSupplyBuys();
+            }
             if (collectableOreBuy) {
                 this.calculateSmithingOreNeeds();
                 this.clearSatisfiedPendingOreBuys();
@@ -1257,6 +1727,26 @@ public class BuyScript extends Script {
             this.bankHasTinderbox = true;
         }
 
+        if (SMALL_FISHING_NET_NAME.equalsIgnoreCase(toolName)) {
+            this.bankHasSmallFishingNet = true;
+        }
+
+        if (FISHING_ROD_NAME.equalsIgnoreCase(toolName)) {
+            this.bankHasFishingRod = true;
+        }
+
+        if (FLY_FISHING_ROD_NAME.equalsIgnoreCase(toolName)) {
+            this.bankHasFlyFishingRod = true;
+        }
+
+        if (HARPOON_NAME.equalsIgnoreCase(toolName)) {
+            this.bankHasHarpoon = true;
+        }
+
+        if (LOBSTER_POT_NAME.equalsIgnoreCase(toolName)) {
+            this.bankHasLobsterPot = true;
+        }
+
         this.bankToolsAudited = true;
     }
 
@@ -1358,6 +1848,26 @@ public class BuyScript extends Script {
             return TINDERBOX_NAME;
         }
 
+        if (!this.hasFishingToolInBank(SMALL_FISHING_NET_NAME) && !this.isMissingToolBuyPending(SMALL_FISHING_NET_NAME)) {
+            return SMALL_FISHING_NET_NAME;
+        }
+
+        if (!this.hasFishingToolInBank(FISHING_ROD_NAME) && !this.isMissingToolBuyPending(FISHING_ROD_NAME)) {
+            return FISHING_ROD_NAME;
+        }
+
+        if (!this.hasFishingToolInBank(FLY_FISHING_ROD_NAME) && !this.isMissingToolBuyPending(FLY_FISHING_ROD_NAME)) {
+            return FLY_FISHING_ROD_NAME;
+        }
+
+        if (!this.hasFishingToolInBank(HARPOON_NAME) && !this.isMissingToolBuyPending(HARPOON_NAME)) {
+            return HARPOON_NAME;
+        }
+
+        if (!this.hasFishingToolInBank(LOBSTER_POT_NAME) && !this.isMissingToolBuyPending(LOBSTER_POT_NAME)) {
+            return LOBSTER_POT_NAME;
+        }
+
         return null;
     }
 
@@ -1376,7 +1886,12 @@ public class BuyScript extends Script {
                 && (itemName.equalsIgnoreCase(desiredPickaxe)
                 || itemName.equalsIgnoreCase(desiredAxe)
                 || itemName.equalsIgnoreCase(HAMMER_NAME)
-                || itemName.equalsIgnoreCase(TINDERBOX_NAME));
+                || itemName.equalsIgnoreCase(TINDERBOX_NAME)
+                || itemName.equalsIgnoreCase(SMALL_FISHING_NET_NAME)
+                || itemName.equalsIgnoreCase(FISHING_ROD_NAME)
+                || itemName.equalsIgnoreCase(FLY_FISHING_ROD_NAME)
+                || itemName.equalsIgnoreCase(HARPOON_NAME)
+                || itemName.equalsIgnoreCase(LOBSTER_POT_NAME));
     }
 
     private boolean hasToolAnywhere(String toolName) {
@@ -1386,6 +1901,10 @@ public class BuyScript extends Script {
 
         if (TINDERBOX_NAME.equalsIgnoreCase(toolName)) {
             return this.hasTinderboxAnywhere();
+        }
+
+        if (this.isFishingToolName(toolName)) {
+            return this.hasFishingToolInBank(toolName);
         }
 
         return Rs2Equipment.isWearing(new String[]{toolName})
@@ -1406,6 +1925,24 @@ public class BuyScript extends Script {
                 || Rs2Inventory.hasItem(TINDERBOX_NAME, true)
                 || Rs2Bank.isOpen() && Rs2Bank.count(TINDERBOX_NAME) > 0
                 || this.isToolCachedInBank(TINDERBOX_NAME);
+    }
+
+    private boolean hasFishingToolInBank(String toolName) {
+        if (toolName == null) {
+            return false;
+        }
+
+        return Rs2Bank.isOpen() && Rs2Bank.count(toolName) > 0
+                || this.isToolCachedInBank(toolName);
+    }
+
+    private boolean isFishingToolName(String toolName) {
+        return toolName != null
+                && (SMALL_FISHING_NET_NAME.equalsIgnoreCase(toolName)
+                || FISHING_ROD_NAME.equalsIgnoreCase(toolName)
+                || FLY_FISHING_ROD_NAME.equalsIgnoreCase(toolName)
+                || HARPOON_NAME.equalsIgnoreCase(toolName)
+                || LOBSTER_POT_NAME.equalsIgnoreCase(toolName));
     }
 
     private boolean hasItemIdInInventory(int itemId) {
@@ -1435,6 +1972,26 @@ public class BuyScript extends Script {
 
         if (TINDERBOX_NAME.equalsIgnoreCase(toolName)) {
             return this.bankHasTinderbox;
+        }
+
+        if (SMALL_FISHING_NET_NAME.equalsIgnoreCase(toolName)) {
+            return this.bankHasSmallFishingNet;
+        }
+
+        if (FISHING_ROD_NAME.equalsIgnoreCase(toolName)) {
+            return this.bankHasFishingRod;
+        }
+
+        if (FLY_FISHING_ROD_NAME.equalsIgnoreCase(toolName)) {
+            return this.bankHasFlyFishingRod;
+        }
+
+        if (HARPOON_NAME.equalsIgnoreCase(toolName)) {
+            return this.bankHasHarpoon;
+        }
+
+        if (LOBSTER_POT_NAME.equalsIgnoreCase(toolName)) {
+            return this.bankHasLobsterPot;
         }
 
         return false;
@@ -1559,6 +2116,47 @@ public class BuyScript extends Script {
         }
     }
 
+    private static final class BuyBudget {
+        private final long bankCoins;
+        private final long inventoryCoins;
+        private final StringBuilder details = new StringBuilder();
+
+        private long estimatedCost;
+
+        private BuyBudget(long bankCoins, long inventoryCoins) {
+            this.bankCoins = bankCoins;
+            this.inventoryCoins = inventoryCoins;
+        }
+
+        private long getAvailableCoins() {
+            return this.bankCoins + this.inventoryCoins;
+        }
+
+        private boolean hasEnoughCoins() {
+            return this.getAvailableCoins() >= this.estimatedCost;
+        }
+
+        private void addDetail(int quantity, String itemName, int unitPrice, long totalPrice) {
+            if (this.details.length() > 0) {
+                this.details.append(", ");
+            }
+
+            this.details
+                    .append(quantity)
+                    .append("x ")
+                    .append(itemName)
+                    .append(" @ ")
+                    .append(unitPrice)
+                    .append("gp = ")
+                    .append(totalPrice)
+                    .append("gp");
+        }
+
+        private String getDetails() {
+            return this.details.length() == 0 ? "none" : this.details.toString();
+        }
+    }
+
     public void shutdown() {
         this.lastWebWalkAtMs = 0L;
         this.lastActionAtMs = 0L;
@@ -1573,7 +2171,9 @@ public class BuyScript extends Script {
         this.lastDesiredAxe = null;
 
         this.pendingMissingToolBuys.clear();
+        this.pendingFishingSupplyBuys.clear();
         this.pendingOreBuys.clear();
+        this.pendingFishingSupplyBuyQuantities.clear();
         this.pendingOreBuyQuantities.clear();
 
         this.requiredBronzeBars = 0;
@@ -1583,6 +2183,7 @@ public class BuyScript extends Script {
         this.bankTinOreCount = 0;
 
         this.complete = false;
+        this.insufficientCoinsForMissingBuys = false;
         KspWalkerGuard.clear("GE Buy:target-area");
 
         super.shutdown();
