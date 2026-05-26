@@ -44,10 +44,17 @@ public class WoodCuttingScript extends Script {
     private static final int WILLOW_SAFE_COMBAT_LEVEL = 16;
 
     private static final List<String> AXE_NAMES = Buy.AXE_NAME_LIST;
+    private static final List<TreeAreas> OAK_AREAS = Arrays.asList(
+            TreeAreas.OAK_TREE_DRAYNOR,
+            TreeAreas.VCASTLE_OAKS,
+            TreeAreas.VWEST_OAKS,
+            TreeAreas.VEAST_OAKS
+    );
 
     private TreeAreas targetArea = TreeAreas.REGULAR_TREE_VARROCK_WEST;
     private boolean startingTargetTreeInitialized;
     private TreeLevel randomMidTierTree;
+    private TreeAreas randomOakArea;
     private boolean debugLogging;
     private long lastWebWalkAtMs;
     private long lastObjectInteractionAtMs;
@@ -63,6 +70,7 @@ public class WoodCuttingScript extends Script {
         this.targetArea = area;
         this.startingTargetTreeInitialized = false;
         this.randomMidTierTree = null;
+        this.randomOakArea = null;
 
         this.mainScheduledFuture = this.scheduledExecutorService.scheduleWithFixedDelay(() -> {
             if (!super.run() || !Microbot.isLoggedIn()) {
@@ -664,18 +672,32 @@ public class WoodCuttingScript extends Script {
         TreeLevel treeLevel = this.getTargetTreeLevel(woodcuttingLevel);
 
         if (treeLevel == TreeLevel.YEW) {
+            this.randomOakArea = null;
             return TreeAreas.YEW_TREE_VARROCK_PALACE;
         }
 
         if (treeLevel == TreeLevel.WILLOW) {
+            this.randomOakArea = null;
             return TreeAreas.WILLOW_TREES_DRAYNOR;
         }
 
         if (treeLevel == TreeLevel.OAK) {
-            return TreeAreas.OAK_TREE_DRAYNOR;
+            return this.resolveRandomOakArea();
         }
 
+        this.randomOakArea = null;
         return TreeAreas.REGULAR_TREE_VARROCK_WEST;
+    }
+
+    private TreeAreas resolveRandomOakArea() {
+        if (this.randomOakArea == null) {
+            this.randomOakArea = OAK_AREAS.get(ThreadLocalRandom.current().nextInt(OAK_AREAS.size()));
+
+            this.debug("Selected oak woodcutting area {}",
+                    this.randomOakArea.getDisplayName());
+        }
+
+        return this.randomOakArea;
     }
 
     private TreeLevel getTargetTreeLevel(int woodcuttingLevel) {
@@ -758,6 +780,7 @@ public class WoodCuttingScript extends Script {
     public void shutdown() {
         this.startingTargetTreeInitialized = false;
         this.randomMidTierTree = null;
+        this.randomOakArea = null;
         this.lastWebWalkAtMs = 0L;
         this.lastObjectInteractionAtMs = 0L;
         this.walkingToTargetArea = false;

@@ -197,8 +197,18 @@ public class AutoLoginScript extends Script
         }
     }
 
+    public boolean isActive()
+    {
+        return active || isRunning();
+    }
+
     private void handleLoginScreenWithLoginManager(Client client)
     {
+        if (!active)
+        {
+            return;
+        }
+
         if (System.currentTimeMillis() - lastLoginAttemptAtMillis < LOGIN_ATTEMPT_COOLDOWN_MS)
         {
             transitionTo(LoginState.WAITING_FOR_LOGIN_PLAY_NOW);
@@ -214,6 +224,11 @@ public class AutoLoginScript extends Script
                 LoginManager.getActiveProfile() != null,
                 LoginManager.isLoginAttemptActive(),
                 targetWorld);
+
+        if (!active || isMicrobotBreakHandlerActive())
+        {
+            return;
+        }
 
         boolean loginStarted = LoginManager.login(targetWorld);
         debug("LoginManager login result={} | loginIndex={} gameState={} loginAttemptActive={} targetWorld={}",

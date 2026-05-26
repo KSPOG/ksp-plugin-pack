@@ -350,6 +350,13 @@ public class FireMakingScript extends Script
             return;
         }
 
+        if (!isInTargetArea(fireLocation))
+        {
+            debug("Skipping campfire outside target area | fire={} area={}", fireLocation, targetArea.getDisplayName());
+            KspWalkerGuard.clear("Firemaking:campfire");
+            return;
+        }
+
         // Early return if burn prompt is already open - don't spam click
         if (isBurnInterfaceOpen(null, targetLogId))
         {
@@ -844,6 +851,7 @@ public class FireMakingScript extends Script
         WorldPoint playerLocation = Rs2Player.getWorldLocation();
         return playerLocation != null
                 && fireLocation != null
+                && isInTargetArea(fireLocation)
                 && Rs2Player.distanceTo(fireLocation) <= CAMPFIRE_DISTANCE
                 && !Rs2Player.isMoving()
                 && !Rs2Player.isAnimating()
@@ -891,6 +899,7 @@ public class FireMakingScript extends Script
                 .within(playerLocation, NEARBY_CAMPFIRE_SCAN_RADIUS)
                 .where(object -> object.getWorldLocation() != null
                         && isValidFireId(object.getId())
+                        && isInTargetArea(object.getWorldLocation())
                         && (!forestersOnly || object.getId() == FORESTERS_CAMPFIRE_ID))
                 .nearest(playerLocation, NEARBY_CAMPFIRE_SCAN_RADIUS));
     }
@@ -901,7 +910,7 @@ public class FireMakingScript extends Script
                 .fromWorldView()
                 .within(getAreaCenter(), getAreaSearchRadius())
                 .where(object -> object.getWorldLocation() != null
-                        && targetArea.toWorldArea().contains(object.getWorldLocation())
+                        && isInTargetArea(object.getWorldLocation())
                         && isValidFireId(object.getId()))
                 .nearest(getAreaCenter(), getAreaSearchRadius()));
     }
@@ -917,8 +926,14 @@ public class FireMakingScript extends Script
                 .fromWorldView()
                 .where(object -> object.getWorldLocation() != null
                         && location.equals(object.getWorldLocation())
+                        && isInTargetArea(object.getWorldLocation())
                         && isValidFireId(object.getId()))
                 .first());
+    }
+
+    private boolean isInTargetArea(WorldPoint point)
+    {
+        return point != null && targetArea.toWorldArea().contains(point);
     }
 
     private boolean isValidFireId(int objectId)

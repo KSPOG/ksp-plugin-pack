@@ -58,6 +58,8 @@ extends Script {
     private static final int SMITHING_WIDGET_CONTAINER_CHILD_ID = 1;
     private static final int SMITHING_ALL_BUTTON_CHILD_ID = 7;
     private static final int ANVIL_MAKE_VARBIT_PLAYER = 2224;
+    private static final String TARGET_AREA_WALK_KEY = "Smithing:target-area";
+    private static final String ANVIL_WALK_KEY = "Smithing:anvil";
     private long lastWebWalkAtMs;
     private long lastAnvilInteractAtMs;
     private long awaitingSmithStartAtMs;
@@ -267,15 +269,26 @@ extends Script {
     }
 
     private boolean ensureInTargetArea() {
-        if (this.targetArea.toWorldArea().contains(Rs2Player.getWorldLocation())) {
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+
+        if (playerLocation == null) {
+            this.debug("Cannot verify smithing area; player location is null");
+            return false;
+        }
+
+        if (this.targetArea.toWorldArea().contains(playerLocation)) {
             this.clearTargetAreaWalkIfNeeded();
             return true;
         }
+
+        this.markExistingTargetAreaWalkIfActive();
+
         if (Rs2Player.isMoving()) {
             return false;
         }
+
         if (KspWalkerGuard.walkToDestination(
-                "Smithing:target-area",
+                TARGET_AREA_WALK_KEY,
                 this.targetArea::getRandomPoint,
                 this.targetArea.toWorldArea()::contains,
                 2,
@@ -287,17 +300,58 @@ extends Script {
                     Rs2Player.getWorldLocation(),
                     this.lastWalkTarget,
                     this.targetArea.getDisplayName());
+        } else {
+            this.markExistingTargetAreaWalkIfActive();
         }
         return false;
     }
 
+    private void markExistingTargetAreaWalkIfActive() {
+        WorldPoint walkerTarget = Rs2Walker.getCurrentTarget();
+
+        if (this.isTargetAreaWalkerTarget(walkerTarget)) {
+            this.lastWalkTarget = walkerTarget;
+            this.walkingToTargetArea = true;
+        }
+    }
+
     private void clearTargetAreaWalkIfNeeded() {
-        if (!this.walkingToTargetArea) {
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+
+        if (playerLocation == null || !this.targetArea.toWorldArea().contains(playerLocation)) {
             return;
         }
-        Rs2Walker.clearWalkingRoute("ksp_account_builder_smithing_reached_area");
-        KspWalkerGuard.clear("Smithing:target-area");
+
+        WorldPoint walkerTarget = Rs2Walker.getCurrentTarget();
+        boolean shouldClearWalkerRoute = this.walkingToTargetArea
+                || this.isSameDestination(walkerTarget, this.lastWalkTarget, 2);
+
+        if (shouldClearWalkerRoute) {
+            Rs2Walker.clearWalkingRoute("ksp_account_builder_smithing_reached_area");
+
+            this.debug("Cleared smithing target-area walk | player={} area={} oldWalkerTarget={} lastWalkTarget={} walkingToTargetArea={}",
+                    playerLocation,
+                    this.targetArea.getDisplayName(),
+                    walkerTarget,
+                    this.lastWalkTarget,
+                    this.walkingToTargetArea);
+        }
+
+        KspWalkerGuard.clear(TARGET_AREA_WALK_KEY);
+        this.lastWalkTarget = null;
+        this.lastWebWalkAtMs = 0L;
         this.walkingToTargetArea = false;
+    }
+
+    private boolean isTargetAreaWalkerTarget(WorldPoint walkerTarget) {
+        return walkerTarget != null && this.targetArea.toWorldArea().contains(walkerTarget);
+    }
+
+    private boolean isSameDestination(WorldPoint first, WorldPoint second, int distance) {
+        return first != null
+                && second != null
+                && first.getPlane() == second.getPlane()
+                && first.distanceTo(second) <= distance;
     }
 
     private void smithAtAnvil(SmithRecipe recipe) {
@@ -340,7 +394,7 @@ extends Script {
         }
         if (Rs2Player.getWorldLocation().distanceTo(anvil.getWorldLocation()) > 6) {
             KspWalkerGuard.walkFastCanvasToPoint(
-                    "Smithing:anvil",
+                    ANVIL_WALK_KEY,
                     (WorldPoint) anvil.getWorldLocation(),
                     6,
                     WEB_WALK_COOLDOWN_MS);
@@ -544,8 +598,8 @@ extends Script {
         this.lastWalkTarget = null;
         this.expectingSmithXpDrop = false;
         this.walkingToTargetArea = false;
-        KspWalkerGuard.clear("Smithing:target-area");
-        KspWalkerGuard.clear("Smithing:anvil");
+        KspWalkerGuard.clear(TARGET_AREA_WALK_KEY);
+        KspWalkerGuard.clear(ANVIL_WALK_KEY);
         super.shutdown();
     }
 

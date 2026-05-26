@@ -8,6 +8,7 @@ public enum SellList {
     OAK_LOGS("Oak logs"),
     YEW_LOGS("Yew logs"),
     COWHIDE("Cowhide"),
+    SILVER_BAR("Silver bar"),
     BRONZE_DAGGER("Bronze dagger"),
     BRONZE_SCIMITAR("Bronze scimitar"),
     BRONZE_WARHAMMER("Bronze warhammer"),

@@ -3,6 +3,8 @@ package net.runelite.client.plugins.microbot.kspaccountbuilder;
 public enum KspTrainSingleSkillTask
 {
     TUTORIAL_ISLAND("Tutorial Island"),
+    COOKS_ASSISTANT("Cook's Assistant"),
+    GOBLIN_DIPLOMACY("Goblin Diplomacy"),
     MINING("Mining"),
     WOODCUTTING("Woodcutting"),
     FIREMAKING("Firemaking"),

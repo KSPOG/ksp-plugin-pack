@@ -3,12 +3,14 @@ package net.runelite.client.plugins.microbot.kspaccountbuilder;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Skill;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
-import net.runelite.client.plugins.microbot.accountselector.AutoLoginPlugin;
 import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.equipment.weapon.Weapons;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.meleescript.MeleeScript;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.questing.cooksassistant.cookscript.CooksScript;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.questing.goblindip.goblindipscript.GobScript;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fishing.fishingscript.FishingScript;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fishing.levelreqfishing.LevelReqs;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.firemakingscript.FireMakingScript;
@@ -56,6 +58,8 @@ public class KspAccountBuilderScript extends Script
     private enum BuilderTask
     {
         TUTORIAL_ISLAND,
+        COOKS_ASSISTANT,
+        GOBLIN_DIPLOMACY,
         MINING,
         WOODCUTTING,
         FIREMAKING,
@@ -68,6 +72,7 @@ public class KspAccountBuilderScript extends Script
     }
 
     private static final int LOOP_DELAY_MS = 600;
+    private static final String EXTERNAL_AUTO_LOGIN_PLUGIN_CLASS = "net.runelite.client.plugins.microbot.accountselector.AutoLoginPlugin";
 
     @Inject
     private MiningScript miningScript;
@@ -100,13 +105,19 @@ public class KspAccountBuilderScript extends Script
     private TutorialIslandScript tutorialIslandScript;
 
     @Inject
+    private CooksScript cooksScript;
+
+    @Inject
+    private GobScript gobScript;
+
+    @Inject
     private AutoLoginScript autoLoginScript;
 
     @Getter
-    private BuilderTask currentTask = getRandomTaskExcluding(null);
+    private volatile BuilderTask currentTask;
 
     @Getter
-    private boolean breakActive;
+    private volatile boolean breakActive;
 
     @Getter
     private long startedAtMillis;
@@ -118,11 +129,12 @@ public class KspAccountBuilderScript extends Script
     private long lastStatusLogAt;
     private KspAccountBuilderConfig config;
     private boolean debugEnabled;
-    private BuilderTask pendingTask;
+    private volatile BuilderTask pendingTask;
     private boolean awaitingNextActivityStart;
     private boolean awaitingActivitySwitchTimerStart;
     private boolean breakLogoutRequested;
     private long lastBreakLoginAttemptAt;
+    private long lastLoginHandoffLogAt;
     private String originalWindowTitle = "Microbot";
 
     public boolean run(KspAccountBuilderConfig config)
@@ -131,6 +143,7 @@ public class KspAccountBuilderScript extends Script
         this.config = config;
         this.debugEnabled = config.debugLogging();
         breakActive = false;
+        stopExternalAutoLoginPlugin("builder-start");
         startAutoLoginHelper();
         miningScript.setDebugLogging(debugEnabled);
         woodCuttingScript.setDebugLogging(debugEnabled);
@@ -142,6 +155,8 @@ public class KspAccountBuilderScript extends Script
         smithScript.setDebugLogging(debugEnabled);
         smeltScript.setDebugLogging(debugEnabled);
         tutorialIslandScript.setDebugLogging(debugEnabled);
+        cooksScript.setDebugLogging(debugEnabled);
+        gobScript.setDebugLogging(debugEnabled);
         applyAntibanSettings();
 
         currentTask = resolveStartingTask();
@@ -149,9 +164,10 @@ public class KspAccountBuilderScript extends Script
         breakActive = false;
         pendingTask = null;
         awaitingNextActivityStart = false;
-        awaitingActivitySwitchTimerStart = isActivitySwitchRandomizationEnabled();
+        awaitingActivitySwitchTimerStart = canUseActivitySwitchTimer();
         breakLogoutRequested = false;
         lastBreakLoginAttemptAt = 0L;
+        lastLoginHandoffLogAt = 0L;
         captureOriginalWindowTitle();
 
         startedAtMillis = System.currentTimeMillis();
@@ -162,40 +178,59 @@ public class KspAccountBuilderScript extends Script
 
         mainScheduledFuture = scheduledExecutorService.scheduleWithFixedDelay(() ->
         {
-            if (!super.run())
+            try
             {
-                return;
-            }
+                if (!super.run())
+                {
+                    return;
+                }
 
-            debugEnabled = config.debugLogging();
-            miningScript.setDebugLogging(debugEnabled);
-            woodCuttingScript.setDebugLogging(debugEnabled);
-            fireMakingScript.setDebugLogging(debugEnabled);
-            fishingScript.setDebugLogging(debugEnabled);
-            meleeScript.setDebugLogging(debugEnabled);
-            buyScript.setDebugLogging(debugEnabled);
-            sellScript.setDebugLogging(debugEnabled);
-            smithScript.setDebugLogging(debugEnabled);
-            smeltScript.setDebugLogging(debugEnabled);
-            tutorialIslandScript.setDebugLogging(debugEnabled);
-            autoLoginScript.setDebugLogging(debugEnabled);
+                debugEnabled = config.debugLogging();
+                miningScript.setDebugLogging(debugEnabled);
+                woodCuttingScript.setDebugLogging(debugEnabled);
+                fireMakingScript.setDebugLogging(debugEnabled);
+                fishingScript.setDebugLogging(debugEnabled);
+                meleeScript.setDebugLogging(debugEnabled);
+                buyScript.setDebugLogging(debugEnabled);
+                sellScript.setDebugLogging(debugEnabled);
+                smithScript.setDebugLogging(debugEnabled);
+                smeltScript.setDebugLogging(debugEnabled);
+                tutorialIslandScript.setDebugLogging(debugEnabled);
+                cooksScript.setDebugLogging(debugEnabled);
+                gobScript.setDebugLogging(debugEnabled);
+                autoLoginScript.setDebugLogging(debugEnabled);
 
-            processTimers();
-            updateWindowTitle();
-            if (breakActive || pendingTask != null)
-            {
+                processTimers();
+                updateWindowTitle();
+                if (breakActive || pendingTask != null)
+                {
+                    maybeLogStatus();
+                    return;
+                }
+
+                if (!Microbot.isLoggedIn())
+                {
+                    maybeLogStatus();
+                    return;
+                }
+
+                if (!isReadyAfterLoginHandoff())
+                {
+                    maybeLogStatus();
+                    return;
+                }
+
+                runAccountBuilderCycle();
                 maybeLogStatus();
-                return;
             }
-
-            if (!Microbot.isLoggedIn())
+            catch (Exception ex)
             {
-                maybeLogStatus();
-                return;
+                log.error("[KSP Account Builder] Main account-builder loop failed; keeping scheduler alive", ex);
+                taskStarted = false;
+                pendingTask = null;
+                awaitingNextActivityStart = false;
+                awaitingActivitySwitchTimerStart = canUseActivitySwitchTimer();
             }
-
-            runAccountBuilderCycle();
-            maybeLogStatus();
         }, 0, LOOP_DELAY_MS, TimeUnit.MILLISECONDS);
 
         return true;
@@ -216,6 +251,8 @@ public class KspAccountBuilderScript extends Script
                 awaitingNextActivityStart = false;
                 breakLogoutRequested = false;
                 lastBreakLoginAttemptAt = 0L;
+                stopExternalAutoLoginPlugin("ksp-break-start");
+                stopAutoLoginHelperForBreak();
                 miningScript.shutdown();
                 woodCuttingScript.shutdown();
                 fireMakingScript.shutdown();
@@ -226,6 +263,8 @@ public class KspAccountBuilderScript extends Script
                 smithScript.shutdown();
                 smeltScript.shutdown();
                 tutorialIslandScript.shutdown();
+                cooksScript.shutdown();
+                gobScript.shutdown();
                 breakEndsAtMillis = now + TimeUnit.MINUTES.toMillis(randomMinutes(config.breakDurationMinMinutes(), config.breakDurationMaxMinutes()));
                 debug("Starting break for {} seconds", getBreakTimeRemainingSeconds());
             }
@@ -243,6 +282,7 @@ public class KspAccountBuilderScript extends Script
                 breakLogoutRequested = false;
                 scheduleNextBreak();
                 debug("Break completed, resuming tasks");
+                startAutoLoginHelper();
 
                 if (!Microbot.isLoggedIn())
                 {
@@ -260,7 +300,14 @@ public class KspAccountBuilderScript extends Script
             return;
         }
 
-        if (!isActivitySwitchRandomizationEnabled() || awaitingNextActivityStart || awaitingActivitySwitchTimerStart)
+        if (currentTask == BuilderTask.TUTORIAL_ISLAND)
+        {
+            pendingTask = null;
+            clearActivitySwitchTimerState();
+            return;
+        }
+
+        if (!canUseActivitySwitchTimer() || awaitingNextActivityStart || awaitingActivitySwitchTimerStart)
         {
             return;
         }
@@ -284,6 +331,8 @@ public class KspAccountBuilderScript extends Script
             smithScript.shutdown();
             smeltScript.shutdown();
             tutorialIslandScript.shutdown();
+            cooksScript.shutdown();
+            gobScript.shutdown();
             debug("Preparing activity switch: {} -> {}", currentTask, pendingTask);
         }
 
@@ -291,7 +340,7 @@ public class KspAccountBuilderScript extends Script
         {
             pendingTask = null;
             awaitingNextActivityStart = true;
-            awaitingActivitySwitchTimerStart = true;
+            awaitingActivitySwitchTimerStart = canUseActivitySwitchTimer();
             nextActivitySwitchAtMillis = -1L;
         }
     }
@@ -303,8 +352,20 @@ public class KspAccountBuilderScript extends Script
             return;
         }
 
+        stopExternalAutoLoginPlugin("ksp-helper-start");
         autoLoginScript.setDebugLogging(debugEnabled);
         autoLoginScript.run(() -> !breakActive);
+    }
+
+    private void stopAutoLoginHelperForBreak()
+    {
+        if (autoLoginScript == null)
+        {
+            return;
+        }
+
+        autoLoginScript.shutdown();
+        debug("Paused KSP AutoLogin helper for break");
     }
 
     private void runAccountBuilderCycle()
@@ -320,7 +381,6 @@ public class KspAccountBuilderScript extends Script
         {
             if (!switchToTaskWithResources())
             {
-                stopCurrentTaskScript();
                 taskStarted = false;
                 return;
             }
@@ -338,6 +398,32 @@ public class KspAccountBuilderScript extends Script
                 if (currentTask == null)
                 {
                     currentTask = getRandomTaskExcluding(BuilderTask.TUTORIAL_ISLAND);
+                }
+                return;
+            }
+
+            if (!isSingleSkillTaskForced()
+                    && currentTask == BuilderTask.COOKS_ASSISTANT
+                    && cooksScript.isComplete())
+            {
+                cooksScript.shutdown();
+                taskStarted = false;
+                if (!switchToTaskWithResources())
+                {
+                    stopCurrentTaskScript();
+                }
+                return;
+            }
+
+            if (!isSingleSkillTaskForced()
+                    && currentTask == BuilderTask.GOBLIN_DIPLOMACY
+                    && gobScript.isComplete())
+            {
+                gobScript.shutdown();
+                taskStarted = false;
+                if (!switchToTaskWithResources())
+                {
+                    stopCurrentTaskScript();
                 }
                 return;
             }
@@ -375,7 +461,40 @@ public class KspAccountBuilderScript extends Script
             sellScript.shutdown();
             smithScript.shutdown();
             smeltScript.shutdown();
+            cooksScript.shutdown();
+            gobScript.shutdown();
+            clearActivitySwitchTimerState();
             taskStarted = tutorialIslandScript.run();
+        }
+        else if (currentTask == BuilderTask.COOKS_ASSISTANT)
+        {
+            miningScript.shutdown();
+            woodCuttingScript.shutdown();
+            fireMakingScript.shutdown();
+            fishingScript.shutdown();
+            meleeScript.shutdown();
+            buyScript.shutdown();
+            sellScript.shutdown();
+            smithScript.shutdown();
+            smeltScript.shutdown();
+            tutorialIslandScript.shutdown();
+            gobScript.shutdown();
+            taskStarted = cooksScript.run();
+        }
+        else if (currentTask == BuilderTask.GOBLIN_DIPLOMACY)
+        {
+            miningScript.shutdown();
+            woodCuttingScript.shutdown();
+            fireMakingScript.shutdown();
+            fishingScript.shutdown();
+            meleeScript.shutdown();
+            buyScript.shutdown();
+            sellScript.shutdown();
+            smithScript.shutdown();
+            smeltScript.shutdown();
+            tutorialIslandScript.shutdown();
+            cooksScript.shutdown();
+            taskStarted = gobScript.run();
         }
         else if (currentTask == BuilderTask.MINING)
         {
@@ -388,6 +507,8 @@ public class KspAccountBuilderScript extends Script
             smithScript.shutdown();
             smeltScript.shutdown();
             tutorialIslandScript.shutdown();
+            cooksScript.shutdown();
+            gobScript.shutdown();
             miningScript.setProgressiveMining(isMiningProgressionEnabled());
             taskStarted = miningScript.run(resolveMiningStartArea());
         }
@@ -402,6 +523,8 @@ public class KspAccountBuilderScript extends Script
             smithScript.shutdown();
             smeltScript.shutdown();
             tutorialIslandScript.shutdown();
+            cooksScript.shutdown();
+            gobScript.shutdown();
             taskStarted = woodCuttingScript.run(resolveWoodcuttingStartArea());
         }
         else if (currentTask == BuilderTask.FIREMAKING)
@@ -415,6 +538,8 @@ public class KspAccountBuilderScript extends Script
             smithScript.shutdown();
             smeltScript.shutdown();
             tutorialIslandScript.shutdown();
+            cooksScript.shutdown();
+            gobScript.shutdown();
             taskStarted = fireMakingScript.run(FireArea.FM_AREA_DRAYNOR_BANK);
         }
         else if (currentTask == BuilderTask.FISHING)
@@ -428,6 +553,8 @@ public class KspAccountBuilderScript extends Script
             smithScript.shutdown();
             smeltScript.shutdown();
             tutorialIslandScript.shutdown();
+            cooksScript.shutdown();
+            gobScript.shutdown();
             taskStarted = fishingScript.run(resolveFishingStartArea());
         }
         else if (currentTask == BuilderTask.MELEE)
@@ -441,6 +568,8 @@ public class KspAccountBuilderScript extends Script
             smithScript.shutdown();
             smeltScript.shutdown();
             tutorialIslandScript.shutdown();
+            cooksScript.shutdown();
+            gobScript.shutdown();
             taskStarted = meleeScript.run();
         }
         else if (currentTask == BuilderTask.GE_SELL)
@@ -454,6 +583,8 @@ public class KspAccountBuilderScript extends Script
             smithScript.shutdown();
             smeltScript.shutdown();
             tutorialIslandScript.shutdown();
+            cooksScript.shutdown();
+            gobScript.shutdown();
             taskStarted = sellScript.run(GEArea.GRAND_EXCHANGE);
         }
         else if (currentTask == BuilderTask.GE_BUY)
@@ -467,6 +598,8 @@ public class KspAccountBuilderScript extends Script
             smithScript.shutdown();
             smeltScript.shutdown();
             tutorialIslandScript.shutdown();
+            cooksScript.shutdown();
+            gobScript.shutdown();
             taskStarted = buyScript.run(GEArea.GRAND_EXCHANGE);
         }
         else if (currentTask == BuilderTask.SMITHING)
@@ -480,6 +613,8 @@ public class KspAccountBuilderScript extends Script
             sellScript.shutdown();
             smeltScript.shutdown();
             tutorialIslandScript.shutdown();
+            cooksScript.shutdown();
+            gobScript.shutdown();
             taskStarted = smithScript.run(SmithArea.SMITH_AREA_VARROCK_WEST_ANVIL);
         }
         else
@@ -493,6 +628,8 @@ public class KspAccountBuilderScript extends Script
             sellScript.shutdown();
             smithScript.shutdown();
             tutorialIslandScript.shutdown();
+            cooksScript.shutdown();
+            gobScript.shutdown();
             taskStarted = smeltScript.run(SmeltArea.SMELT_AREA_EDGEVILLE_FURNACE, resolveSmeltingFallbackBar());
         }
 
@@ -503,6 +640,46 @@ public class KspAccountBuilderScript extends Script
         }
 
         maybeStartActivitySwitchTimer();
+    }
+
+    private boolean isReadyAfterLoginHandoff()
+    {
+        if (autoLoginScript != null && autoLoginScript.isActive())
+        {
+            debugLoginHandoffWait("autologin-helper-active");
+            return false;
+        }
+
+        if (Microbot.getClient() == null || Microbot.getClient().getLocalPlayer() == null)
+        {
+            debugLoginHandoffWait("local-player-null");
+            return false;
+        }
+
+        if (getSafePlayerLocation() == null)
+        {
+            debugLoginHandoffWait("world-location-null");
+            return false;
+        }
+
+        return true;
+    }
+
+    private void debugLoginHandoffWait(String reason)
+    {
+        long now = System.currentTimeMillis();
+        if (now - lastLoginHandoffLogAt < 3_000)
+        {
+            return;
+        }
+
+        lastLoginHandoffLogAt = now;
+        debug("Waiting after login before starting task | reason={} autoLoginState={} player={} taskStarted={} currentTask={}",
+                reason,
+                autoLoginScript == null ? "none" : autoLoginScript.getState(),
+                getSafePlayerLocation(),
+                taskStarted,
+                currentTask);
     }
 
     private void handleTutorialIslandPriority()
@@ -534,7 +711,13 @@ public class KspAccountBuilderScript extends Script
         }
 
         BuilderTask singleSkillTask = resolveSingleSkillTask();
-        return singleSkillTask != null ? singleSkillTask : getRandomTaskExcluding(null);
+        if (singleSkillTask != null)
+        {
+            return singleSkillTask;
+        }
+
+        BuilderTask taskWithResources = getRandomTaskWithResourcesExcluding(null);
+        return taskWithResources != null ? taskWithResources : getRandomTaskExcluding(null);
     }
 
     private void applySingleSkillOverride()
@@ -583,6 +766,16 @@ public class KspAccountBuilderScript extends Script
         if (config.singleSkillTask() == KspTrainSingleSkillTask.TUTORIAL_ISLAND)
         {
             return BuilderTask.TUTORIAL_ISLAND;
+        }
+
+        if (config.singleSkillTask() == KspTrainSingleSkillTask.COOKS_ASSISTANT)
+        {
+            return BuilderTask.COOKS_ASSISTANT;
+        }
+
+        if (config.singleSkillTask() == KspTrainSingleSkillTask.GOBLIN_DIPLOMACY)
+        {
+            return BuilderTask.GOBLIN_DIPLOMACY;
         }
 
         if (config.singleSkillTask() == KspTrainSingleSkillTask.MINING)
@@ -645,6 +838,19 @@ public class KspAccountBuilderScript extends Script
                 && !isSingleSkillTaskForced();
     }
 
+    private boolean canUseActivitySwitchTimer()
+    {
+        return isActivitySwitchRandomizationEnabled()
+                && currentTask != BuilderTask.TUTORIAL_ISLAND;
+    }
+
+    private void clearActivitySwitchTimerState()
+    {
+        awaitingNextActivityStart = false;
+        awaitingActivitySwitchTimerStart = false;
+        nextActivitySwitchAtMillis = -1L;
+    }
+
     private boolean isMiningProgressionEnabled()
     {
         return !isSingleSkillTaskForced()
@@ -677,6 +883,16 @@ public class KspAccountBuilderScript extends Script
         if (task == BuilderTask.TUTORIAL_ISLAND)
         {
             return TutorialIslandScript.isOnTutorialIsland();
+        }
+
+        if (task == BuilderTask.COOKS_ASSISTANT)
+        {
+            return !cooksScript.isComplete();
+        }
+
+        if (task == BuilderTask.GOBLIN_DIPLOMACY)
+        {
+            return !gobScript.isComplete();
         }
 
         if (task == BuilderTask.MINING)
@@ -737,14 +953,7 @@ public class KspAccountBuilderScript extends Script
 
     private boolean hasAnyMeleeResourcesAvailable()
     {
-        if (hasAnyMeleeWeaponAvailable())
-        {
-            return true;
-        }
-
-        return Rs2Inventory.count(Buy.COINS_NAME) > 0
-                || Rs2Inventory.count(Buy.COINS_NAME, true) > 0
-                || Rs2Bank.count(Buy.COINS_NAME) > 0;
+        return hasAnyMeleeWeaponAvailable();
     }
 
     private boolean hasAnyMeleeWeaponAvailable()
@@ -980,21 +1189,6 @@ public class KspAccountBuilderScript extends Script
 
     private boolean switchToTaskWithResources()
     {
-        stopCurrentTaskScript();
-        taskStarted = false;
-
-        if (!prepareForTaskSwitchAtBank())
-        {
-            debug("Waiting to switch task; still preparing bank handoff before selecting next task");
-            return false;
-        }
-
-        if (!ensureInventoryTabOpenForTaskSelection())
-        {
-            debug("Waiting to switch task; inventory tab is not open before selecting next task");
-            return false;
-        }
-
         BuilderTask nextTask = getRandomTaskWithResourcesExcluding(currentTask);
         if (nextTask == null)
         {
@@ -1002,13 +1196,27 @@ public class KspAccountBuilderScript extends Script
             return false;
         }
 
+        stopCurrentTaskScript();
+        taskStarted = false;
+
+        if (!prepareForTaskSwitchAtBank())
+        {
+            debug("Waiting to switch task; still preparing bank handoff before switching from {} to {}", currentTask, nextTask);
+            return false;
+        }
+
+        if (!ensureInventoryTabOpenForTaskSelection())
+        {
+            debug("Waiting to switch task; inventory tab is not open before switching from {} to {}", currentTask, nextTask);
+            return false;
+        }
+
         pendingTask = null;
         awaitingNextActivityStart = false;
-        awaitingActivitySwitchTimerStart = isActivitySwitchRandomizationEnabled();
-        nextActivitySwitchAtMillis = -1L;
-
         debug("Switching task from {} to {} because resources are unavailable", currentTask, nextTask);
         currentTask = nextTask;
+        awaitingActivitySwitchTimerStart = canUseActivitySwitchTimer();
+        nextActivitySwitchAtMillis = -1L;
         return true;
     }
 
@@ -1048,6 +1256,18 @@ public class KspAccountBuilderScript extends Script
         if (currentTask == BuilderTask.TUTORIAL_ISLAND)
         {
             tutorialIslandScript.shutdown();
+            return;
+        }
+
+        if (currentTask == BuilderTask.COOKS_ASSISTANT)
+        {
+            cooksScript.shutdown();
+            return;
+        }
+
+        if (currentTask == BuilderTask.GOBLIN_DIPLOMACY)
+        {
+            gobScript.shutdown();
             return;
         }
 
@@ -1110,6 +1330,14 @@ public class KspAccountBuilderScript extends Script
         if (currentTask == BuilderTask.TUTORIAL_ISLAND)
         {
             tutorialIslandScript.shutdown();
+        }
+        else if (currentTask == BuilderTask.COOKS_ASSISTANT)
+        {
+            cooksScript.shutdown();
+        }
+        else if (currentTask == BuilderTask.GOBLIN_DIPLOMACY)
+        {
+            gobScript.shutdown();
         }
         else if (currentTask == BuilderTask.MINING)
         {
@@ -1305,7 +1533,7 @@ public class KspAccountBuilderScript extends Script
 
     private void scheduleNextActivitySwitch()
     {
-        if (!isActivitySwitchRandomizationEnabled())
+        if (!canUseActivitySwitchTimer())
         {
             nextActivitySwitchAtMillis = -1L;
             return;
@@ -1317,7 +1545,13 @@ public class KspAccountBuilderScript extends Script
 
     private void maybeStartActivitySwitchTimer()
     {
-        if (!isActivitySwitchRandomizationEnabled() || !awaitingActivitySwitchTimerStart || !taskStarted)
+        if (currentTask == BuilderTask.TUTORIAL_ISLAND)
+        {
+            clearActivitySwitchTimerState();
+            return;
+        }
+
+        if (!canUseActivitySwitchTimer() || !awaitingActivitySwitchTimerStart || !taskStarted)
         {
             return;
         }
@@ -1341,7 +1575,7 @@ public class KspAccountBuilderScript extends Script
 
         if (currentTask == BuilderTask.TUTORIAL_ISLAND)
         {
-            return TutorialIslandScript.isOnTutorialIsland();
+            return false;
         }
 
         if (currentTask == BuilderTask.MINING)
@@ -1429,17 +1663,35 @@ public class KspAccountBuilderScript extends Script
         long now = System.currentTimeMillis();
         if (now - lastStatusLogAt >= 10_000)
         {
+            WorldPoint playerLocation = getSafePlayerLocation();
             debug("active task | currentTask={} pendingTask={} breakActive={} player={} moving={} animating={} interacting={} bankOpen={} taskStarted={}",
                     currentTask,
                     pendingTask,
                     breakActive,
-                    Rs2Player.getWorldLocation(),
-                    Rs2Player.isMoving(),
-                    Rs2Player.isAnimating(),
-                    Rs2Player.isInteracting(),
+                    playerLocation,
+                    playerLocation != null && Rs2Player.isMoving(),
+                    playerLocation != null && Rs2Player.isAnimating(),
+                    playerLocation != null && Rs2Player.isInteracting(),
                     Rs2Bank.isOpen(),
                     taskStarted);
             lastStatusLogAt = now;
+        }
+    }
+
+    private WorldPoint getSafePlayerLocation()
+    {
+        try
+        {
+            if (Microbot.getClient() == null || Microbot.getClient().getLocalPlayer() == null)
+            {
+                return null;
+            }
+
+            return Rs2Player.getWorldLocation();
+        }
+        catch (Exception ignored)
+        {
+            return null;
         }
     }
 
@@ -1506,12 +1758,7 @@ public class KspAccountBuilderScript extends Script
         }
 
         lastBreakLoginAttemptAt = now;
-
-        if (attemptAutoLogin())
-        {
-            debug("Triggered AutoLogin after break");
-            return;
-        }
+        stopExternalAutoLoginPlugin("post-break-login");
 
         if (LoginManager.getActiveProfile() == null)
         {
@@ -1531,41 +1778,35 @@ public class KspAccountBuilderScript extends Script
         }
     }
 
-    private boolean attemptAutoLogin()
+    private void stopExternalAutoLoginPlugin(String reason)
     {
         try
         {
-            AutoLoginPlugin autoLoginPlugin = (AutoLoginPlugin) Microbot.getPlugin(AutoLoginPlugin.class.getName());
-            if (autoLoginPlugin == null)
+            var externalAutoLoginPlugin = Microbot.getPlugin(EXTERNAL_AUTO_LOGIN_PLUGIN_CLASS);
+            if (externalAutoLoginPlugin == null || !Microbot.isPluginEnabled(externalAutoLoginPlugin))
             {
-                return false;
+                return;
             }
 
-            if (!Microbot.isPluginEnabled(autoLoginPlugin.getClass()))
-            {
-                Microbot.getClientThread().runOnSeperateThread(() ->
-                {
-                    Microbot.startPlugin(autoLoginPlugin);
-                    return true;
-                });
-            }
-            return true;
+            boolean stopped = Microbot.stopPlugin(externalAutoLoginPlugin);
+            debug("Stopped standalone AutoLogin plugin | reason={} stopped={}", reason, stopped);
         }
         catch (Exception ex)
         {
-            debug("Failed to trigger AutoLogin after break: {}", ex.getMessage());
-            return false;
+            debug("Failed to stop standalone AutoLogin plugin | reason={} error={}", reason, ex.getMessage());
         }
     }
 
     public String getCurrentTaskName()
     {
-        if (pendingTask != null)
+        BuilderTask pending = pendingTask;
+        if (pending != null)
         {
-            return "SWITCHING_TO_" + pendingTask.name();
+            return "SWITCHING_TO_" + pending.name();
         }
 
-        return currentTask.name();
+        BuilderTask current = currentTask;
+        return current == null ? "IDLE" : current.name();
     }
 
     public long getRuntimeSeconds()
@@ -1602,7 +1843,7 @@ public class KspAccountBuilderScript extends Script
             return -1L;
         }
 
-        if (!isActivitySwitchRandomizationEnabled() || nextActivitySwitchAtMillis <= 0L || pendingTask != null || awaitingNextActivityStart)
+        if (!canUseActivitySwitchTimer() || nextActivitySwitchAtMillis <= 0L || pendingTask != null || awaitingNextActivityStart)
         {
             return -1L;
         }
@@ -1669,6 +1910,21 @@ public class KspAccountBuilderScript extends Script
         if (smeltScript != null)
         {
             smeltScript.shutdown();
+        }
+
+        if (tutorialIslandScript != null)
+        {
+            tutorialIslandScript.shutdown();
+        }
+
+        if (cooksScript != null)
+        {
+            cooksScript.shutdown();
+        }
+
+        if (gobScript != null)
+        {
+            gobScript.shutdown();
         }
 
         if (autoLoginScript != null)
