@@ -5,26 +5,25 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
-import net.runelite.client.plugins.microbot.PluginConstants;
 import net.runelite.client.ui.overlay.OverlayManager;
 
 import javax.inject.Inject;
 
 @PluginDescriptor(
-        name = PluginConstants.KSP + "Account Builder",
+        name = "[KSP] Account Builder",
         description = "Will automatically build a F2P Main",
         tags = {"microbot", "ksp", "account", "builder"},
         authors = {"KSP"},
         version = KspAccountBuilderPlugin.VERSION,
         minClientVersion = "2.0.13",
-        enabledByDefault = PluginConstants.DEFAULT_ENABLED,
-        isExternal = PluginConstants.IS_EXTERNAL
+        enabledByDefault = true,
+        isExternal = true
 )
 @Slf4j
 @SuppressWarnings("unused") // Loaded dynamically by the hub build/plugin discovery process.
 public class KspAccountBuilderPlugin extends Plugin
 {
-    public static final String VERSION = "1.4.32";
+    public static final String VERSION = "1.0.2";
 
     @Inject
     private KspAccountBuilderScript script;
