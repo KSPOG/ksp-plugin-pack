@@ -5,6 +5,7 @@ package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.co
 
 public enum CowLoot {
     COWHIDE("Cowhide"),
+    FEATHER("Feather"),
     BONES("Bones"),
     BRONZE_ARROW("Bronze arrow"),
     IRON_ARROW("Iron arrow"),
@@ -24,4 +25,3 @@ public enum CowLoot {
         this.displayName = displayName;
     }
 }
-

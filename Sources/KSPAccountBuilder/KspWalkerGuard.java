@@ -11,7 +11,9 @@ import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
 public final class KspWalkerGuard
 {
     private static final int SAME_TARGET_DISTANCE = 8;
+    private static final long CLEAR_COOLDOWN_MS = 1_500L;
     private static final Map<String, WalkRequest> WALK_REQUESTS = new ConcurrentHashMap<>();
+    private static volatile long lastGlobalClearAtMs;
 
     private KspWalkerGuard()
     {
@@ -96,10 +98,33 @@ public final class KspWalkerGuard
 
     public static void clear(String key)
     {
+        WalkRequest removedRequest = null;
         if (key != null)
         {
-            WALK_REQUESTS.remove(key);
+            removedRequest = WALK_REQUESTS.remove(key);
         }
+
+        if (removedRequest != null || Rs2Walker.getCurrentTarget() != null)
+        {
+            clearActiveWalker("ksp_account_builder_reached_destination");
+        }
+    }
+
+    public static void clearActiveWalker(String reason)
+    {
+        if (Rs2Walker.getCurrentTarget() == null)
+        {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        if (now - lastGlobalClearAtMs < CLEAR_COOLDOWN_MS)
+        {
+            return;
+        }
+
+        lastGlobalClearAtMs = now;
+        Rs2Walker.clearWalkingRoute(reason != null ? reason : "ksp_account_builder_clear_walker");
     }
 
     private static boolean shouldWalkToPoint(String key, WorldPoint target, int arriveDistance, long refireCooldownMs)

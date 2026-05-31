@@ -8,6 +8,10 @@ public enum SellList {
     OAK_LOGS("Oak logs"),
     YEW_LOGS("Yew logs"),
     COWHIDE("Cowhide"),
+    LEATHER_GLOVES("Leather gloves"),
+    SMALL_FISHING_NET("Small fishing net"),
+    FISHING_ROD("Fishing rod"),
+    FISHING_BAIT("Fishing bait"),
     SILVER_BAR("Silver bar"),
     BRONZE_DAGGER("Bronze dagger"),
     BRONZE_SCIMITAR("Bronze scimitar"),
@@ -38,4 +42,3 @@ public enum SellList {
         this.displayName = displayName;
     }
 }
-

@@ -1,40 +1,51 @@
 package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.tutorialisland;
 
+import net.runelite.api.Actor;
+import net.runelite.api.Client;
+import net.runelite.api.ItemID;
+import net.runelite.api.NpcID;
+import net.runelite.api.ObjectID;
 import net.runelite.api.coords.WorldArea;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel;
-import net.runelite.client.plugins.microbot.api.tileobject.models.Rs2TileObjectModel;
+import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2Antiban;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2AntibanSettings;
-import net.runelite.client.plugins.microbot.util.antiban.enums.PlayStyle;
+import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
+import net.runelite.client.plugins.microbot.util.camera.Rs2Camera;
 import net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue;
+import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
+import net.runelite.client.plugins.microbot.util.gameobject.Rs2GameObject;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.keyboard.Rs2Keyboard;
 import net.runelite.client.plugins.microbot.util.math.Rs2Random;
 import net.runelite.client.plugins.microbot.util.misc.Rs2UiHelper;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
+import net.runelite.client.plugins.microbot.util.security.Login;
+import net.runelite.client.plugins.microbot.util.security.LoginManager;
+import net.runelite.client.plugins.microbot.util.tabs.Rs2Tab;
+import net.runelite.client.plugins.microbot.util.tile.Rs2Tile;
 import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
 import net.runelite.client.plugins.microbot.util.widget.Rs2Widget;
 
-
-import java.util.ArrayList;
-import java.util.List;
 import javax.inject.Singleton;
-import java.util.concurrent.TimeUnit;
+import java.awt.event.KeyEvent;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
-/**
- * Best-effort Java reconstruction from TutorialIslandScript.class.
- *
- * The original bytecode is preserved in recovery-notes/KSPTutIslandPlugin_javap_disassembly.txt.
- * This file restores the class layout, constants, state fields, overlay getters, queue parsing,
- * status calculation, name/character creation helpers, and the main loop flow found in bytecode.
- * Some long Tutorial Island step methods were reconstructed conservatively because Java bytecode
- * does not retain the original formatting/comments and no dedicated Java decompiler was available.
- */
+import static net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue.clickContinue;
+import static net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue.hasContinue;
+import static net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue.hasSelectAnOption;
+import static net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue.isInDialogue;
+
 @Singleton
 public class TutorialIslandScript extends Script
 {
@@ -85,15 +96,18 @@ public class TutorialIslandScript extends Script
             13, 17, 21, 25, 29, 33, 37, 44, 48, 52, 56, 60
     };
 
-    private static final WorldArea START_AREA = new WorldArea(3092, 3100, 4, 13, 0);
-    private static final WorldArea SURVIVAL_AREA = new WorldArea(3098, 3089, 8, 11, 0);
-    private static final WorldArea COOKING_AREA = new WorldArea(3073, 3083, 6, 4, 0);
-    private static final WorldArea QUEST_GUIDE_AREA = new WorldArea(3083, 3119, 7, 7, 0);
-    private static final WorldArea MINING_SMITHING_AREA = new WorldArea(3073, 9494, 15, 15, 0);
-    private static final WorldArea RAT_PIT_AREA = new WorldArea(3097, 9507, 15, 12, 0);
-    private static final WorldArea TUT_ISLAND_BANK_AREA = new WorldArea(3120, 3118, 12, 10, 0);
-    private static final WorldArea CHURCH_AREA = new WorldArea(3120, 3103, 14, 14, 0);
-    private static final WorldArea TUTORIAL_END_AREA = new WorldArea(3134, 3084, 14, 14, 0);
+    private static final WorldArea START_AREA            = new WorldArea(3092, 3100,  4, 13, 0);
+    private static final WorldArea SURVIVAL_AREA         = new WorldArea(3098, 3089,  8, 11, 0);
+    private static final WorldArea COOKING_AREA          = new WorldArea(3073, 3083,  6,  5, 0);
+    private static final WorldArea QUEST_GUIDE_AREA      = new WorldArea(3083, 3119,  7,  7, 0);
+    private static final WorldPoint COOKING_AREA_WALK_TILE = new WorldPoint(3074, 3087, 0);
+    private static final WorldPoint QUEST_GUIDE_WALK_TILE = new WorldPoint(3085, 3121, 0);
+    private static final WorldArea MINING_SMITHING_AREA  = new WorldArea(3073, 9494, 15, 15, 0);
+    private static final WorldArea COMBAT_INSTRUCTOR_AREA= new WorldArea(3103, 9507,  6,  3, 0);
+    private static final WorldArea RAT_PIT_AREA          = new WorldArea(3097, 9514, 12,  9, 0);
+    private static final WorldArea TUT_ISLAND_BANK_AREA  = new WorldArea(3120, 3118, 12, 10, 0);
+    private static final WorldArea CHURCH_AREA           = new WorldArea(3120, 3103, 14, 14, 0);
+    private static final WorldArea TUTORIAL_END_AREA     = new WorldArea(3134, 3084, 14, 14, 0);
 
     private long lastNameAttemptAtMs;
     private String lastGeneratedName = "None";
@@ -119,96 +133,103 @@ public class TutorialIslandScript extends Script
         configureAntiban();
 
         mainScheduledFuture = scheduledExecutorService.scheduleWithFixedDelay(() -> {
-            if (!super.run())
+            try
             {
-                return;
+                if (!super.run())
+                {
+                    return;
+                }
+
+                if (!Microbot.isLoggedIn())
+                {
+                    handleQueuedLogin();
+                    return;
+                }
+
+                completeQueuedLoginIfNeeded();
+                calculateStatus();
+
+                if (Rs2Widget.isWidgetVisible(929, 5))
+                {
+                    Rs2Widget.clickWidget(929, 5);
+                    Rs2Random.waitEx(1200, 300);
+                    return;
+                }
+
+                if (Rs2Widget.isWidgetVisible(310, 0))
+                {
+                    Rs2Keyboard.keyPress(KeyEvent.VK_ESCAPE);
+                    Rs2Random.waitEx(1200, 300);
+                    return;
+                }
+
+                if (isInStartArea() && isExperiencePromptOpen())
+                {
+                    selectRandomExperienceOption();
+                    return;
+                }
+
+                if (hasContinue())
+                {
+                    clickContinue();
+                    return;
+                }
+
+                if (Rs2Player.isMoving() || Rs2Player.isAnimating())
+                {
+                    return;
+                }
+
+                switch (status)
+                {
+                    case NAME:
+                        if (isInStartArea() && isDisplayNameWidgetOpen() && !isNameAttemptCoolingDown())
+                        {
+                            enterGeneratedName();
+                            lastNameAttemptAtMs = System.currentTimeMillis();
+                        }
+                        break;
+                    case CHARACTER:
+                        if (isInStartArea() && isCharacterCreationWidgetOpen())
+                        {
+                            randomizeCharacter();
+                        }
+                        break;
+                    case GETTING_STARTED:
+                        gettingStarted();
+                        break;
+                    case SURVIVAL_GUIDE:
+                        survivalGuide();
+                        break;
+                    case COOKING_GUIDE:
+                        cookingGuide();
+                        break;
+                    case QUEST_GUIDE:
+                        questGuide();
+                        break;
+                    case MINING_GUIDE:
+                        miningGuide();
+                        break;
+                    case COMBAT_GUIDE:
+                        combatGuide();
+                        break;
+                    case BANKER_GUIDE:
+                        bankerGuide();
+                        break;
+                    case PRAYER_GUIDE:
+                        prayerGuide();
+                        break;
+                    case MAGE_GUIDE:
+                        mageGuide();
+                        break;
+                    case FINISHED:
+                        handleTutorialComplete();
+                        break;
+                }
             }
-
-            if (!Microbot.isLoggedIn())
+            catch (Exception e)
             {
-                handleQueuedLogin();
-                return;
-            }
-
-            completeQueuedLoginIfNeeded();
-            calculateStatus();
-
-            if (Rs2Widget.isWidgetVisible(929, 5))
-            {
-                Rs2Widget.clickWidget(929, 5);
-                Rs2Random.waitEx(1200, 300);
-                return;
-            }
-
-            if (Rs2Widget.isWidgetVisible(310, 0))
-            {
-                Rs2Keyboard.keyPress(27);
-                Rs2Random.waitEx(1200, 300);
-                return;
-            }
-
-            if (isInStartArea() && isExperiencePromptOpen())
-            {
-                selectRandomExperienceOption();
-                return;
-            }
-
-            if (Rs2Dialogue.hasContinue())
-            {
-                Rs2Dialogue.clickContinue();
-                return;
-            }
-
-            if (Rs2Player.isMoving() || Rs2Player.isAnimating())
-            {
-                return;
-            }
-
-            switch (status)
-            {
-                case NAME:
-                    if (isInStartArea() && isDisplayNameWidgetOpen() && !isNameAttemptCoolingDown())
-                    {
-                        lastNameAttemptAtMs = System.currentTimeMillis();
-                        enterGeneratedName();
-                    }
-                    break;
-                case CHARACTER:
-                    if (isInStartArea() && isCharacterCreationWidgetOpen())
-                    {
-                        randomizeCharacter();
-                    }
-                    break;
-                case GETTING_STARTED:
-                    gettingStarted();
-                    break;
-                case SURVIVAL_GUIDE:
-                    survivalGuide();
-                    break;
-                case COOKING_GUIDE:
-                    cookingGuide();
-                    break;
-                case QUEST_GUIDE:
-                    questGuide();
-                    break;
-                case MINING_GUIDE:
-                    miningGuide();
-                    break;
-                case COMBAT_GUIDE:
-                    combatGuide();
-                    break;
-                case BANKER_GUIDE:
-                    bankerGuide();
-                    break;
-                case PRAYER_GUIDE:
-                    prayerGuide();
-                    break;
-                case MAGE_GUIDE:
-                    mageGuide();
-                    break;
-                case FINISHED:
-                    handleTutorialComplete();
-                    break;
+                debug("Error in TutorialIslandScript: %s", e.getMessage());
             }
         }, 0, LOOP_DELAY_MS, TimeUnit.MILLISECONDS);
 
@@ -219,12 +240,33 @@ public class TutorialIslandScript extends Script
     {
         try
         {
-            return Microbot.isLoggedIn() && Microbot.getVarbitPlayerValue(281) < 1000;
+            if (!Microbot.isLoggedIn() || Microbot.getVarbitPlayerValue(281) >= 1000)
+            {
+                return false;
+            }
+
+            WorldPoint location = Rs2Player.getWorldLocation();
+            return isTutorialIslandLocation(location);
         }
         catch (Exception ignored)
         {
             return false;
         }
+    }
+
+    private static boolean isTutorialIslandLocation(WorldPoint location)
+    {
+        return location != null
+                && (START_AREA.contains(location)
+                || SURVIVAL_AREA.contains(location)
+                || COOKING_AREA.contains(location)
+                || QUEST_GUIDE_AREA.contains(location)
+                || MINING_SMITHING_AREA.contains(location)
+                || COMBAT_INSTRUCTOR_AREA.contains(location)
+                || RAT_PIT_AREA.contains(location)
+                || TUT_ISLAND_BANK_AREA.contains(location)
+                || CHURCH_AREA.contains(location)
+                || TUTORIAL_END_AREA.contains(location));
     }
 
     public boolean isComplete()
@@ -239,10 +281,14 @@ public class TutorialIslandScript extends Script
         }
     }
 
-    public void setDebugLogging(boolean debugEnabled)
+    public void setDebugLogging(boolean enabled)
     {
-        this.debugEnabled = debugEnabled;
+        this.debugEnabled = enabled;
     }
+
+    // -------------------------------------------------------------------------
+    // Status calculation
+    // -------------------------------------------------------------------------
 
     private void calculateStatus()
     {
@@ -304,6 +350,10 @@ public class TutorialIslandScript extends Script
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Widget detection helpers
+    // -------------------------------------------------------------------------
+
     private boolean isInStartArea()
     {
         WorldPoint location = Rs2Player.getWorldLocation();
@@ -336,128 +386,86 @@ public class TutorialIslandScript extends Script
         return System.currentTimeMillis() - lastNameAttemptAtMs < NAME_ATTEMPT_COOLDOWN_MS;
     }
 
+    // -------------------------------------------------------------------------
+    // Name creation
+    // -------------------------------------------------------------------------
+
     private void enterGeneratedName()
     {
         String name = generateDisplayName();
         lastGeneratedName = name;
 
         clearDisplayNameInput();
-        sleep(randomDelay(250, 500));
+        sleep(randomDelay(180, 420));
 
         Rs2Widget.clickWidget(NAME_CREATION_GROUP, NAME_INPUT_CHILD);
-        sleep(randomDelay(250, 500));
+        sleep(randomDelay(240, 520));
 
         Rs2Keyboard.typeString(name);
-        sleep(randomDelay(300, 600));
+        sleep(randomDelay(220, 520));
 
-        if (!clickLookUpNameButton())
-        {
-            debug("Unable to click Look up name button for generated name %s", name);
-            return;
-        }
-
-        sleepUntil(() -> isGeneratedNameAvailable(name), 6_000);
+        Rs2Widget.clickWidget(NAME_CREATION_GROUP, LOOK_UP_NAME_BUTTON_CHILD);
+        sleep(randomDelay(4200, 5600));
 
         if (isGeneratedNameAvailable(name))
         {
-            if (!clickSetNameButton())
-            {
-                debug("Generated name %s is available, but Set name button was not clickable", name);
-            }
-            sleep(randomDelay(800, 1400));
+            Rs2Widget.clickWidget(NAME_CREATION_GROUP, LOOK_UP_NAME_BUTTON_CHILD);
+            sleepUntil(() -> !isDisplayNameWidgetOpen(), 6000);
         }
     }
 
     private void clearDisplayNameInput()
     {
+        String currentInput = getCurrentDisplayNameInput();
+
+        if (currentInput.isEmpty())
+        {
+            return;
+        }
+
         Rs2Widget.clickWidget(NAME_CREATION_GROUP, NAME_INPUT_CHILD);
-        sleep(randomDelay(250, 500));
+        sleep(randomDelay(240, 520));
 
-        /*
-         * Do not rely on NAME_INPUT_TEXT_CHILD length here.
-         * After failed lookups the widget text can be stale/partial, so we use
-         * enough backspaces to clear any valid OSRS display name.
-         */
-        for (int i = 0; i < 24; i++)
+        for (int i = 0; i < currentInput.length(); i++)
         {
-            Rs2Keyboard.keyPress(8);
-            sleep(randomDelay(20, 55));
+            Rs2Keyboard.keyPress(KeyEvent.VK_BACK_SPACE);
+            sleep(randomDelay(18, 55));
         }
-    }
-
-    private boolean clickLookUpNameButton()
-    {
-        Widget button = Rs2Widget.getWidget(NAME_CREATION_GROUP, LOOK_UP_NAME_BUTTON_CHILD);
-        if (button != null && !button.isHidden())
-        {
-            Rs2Widget.clickWidget(button);
-            return true;
-        }
-
-        Widget fallback = Rs2Widget.findWidget(LOOK_UP_NAME_BUTTON, null, false);
-        if (fallback != null && !fallback.isHidden())
-        {
-            Rs2Widget.clickWidget(fallback);
-            return true;
-        }
-
-        return false;
-    }
-
-    private boolean clickSetNameButton()
-    {
-        Widget button = Rs2Widget.getWidget(NAME_CREATION_GROUP, SET_NAME_BUTTON_CHILD);
-        if (button != null && !button.isHidden())
-        {
-            Rs2Widget.clickWidget(button);
-            sleepUntil(() -> !isDisplayNameWidgetOpen(), 5_000);
-            return true;
-        }
-
-        Widget setNameWidget = Rs2Widget.findWidget("Set name", null, false);
-        if (setNameWidget != null && !setNameWidget.isHidden())
-        {
-            Rs2Widget.clickWidget(setNameWidget);
-            sleepUntil(() -> !isDisplayNameWidgetOpen(), 5_000);
-            return true;
-        }
-
-        Widget setWidget = Rs2Widget.findWidget("Set", null, false);
-        if (setWidget != null && !setWidget.isHidden())
-        {
-            Rs2Widget.clickWidget(setWidget);
-            sleepUntil(() -> !isDisplayNameWidgetOpen(), 5_000);
-            return true;
-        }
-
-        return false;
     }
 
     private String getCurrentDisplayNameInput()
     {
         Widget nameInput = Rs2Widget.getWidget(NAME_CREATION_GROUP, NAME_INPUT_TEXT_CHILD);
+
         if (nameInput == null || nameInput.getText() == null)
         {
             return "";
         }
+
         return nameInput.getText().replace("*", "").trim();
     }
 
     private boolean isGeneratedNameAvailable(String name)
     {
         Widget responseWidget = Rs2Widget.getWidget(NAME_CREATION_GROUP, NAME_RESPONSE_TEXT_CHILD);
+
         if (responseWidget == null || responseWidget.getText() == null)
         {
             return false;
         }
 
         String responseText = Rs2UiHelper.stripColTags(responseWidget.getText());
-        return responseText.startsWith(name + " is available");
+        return responseText.startsWith("Great! The display name " + name + " is available");
     }
+
+    // -------------------------------------------------------------------------
+    // Character creation
+    // -------------------------------------------------------------------------
 
     private void randomizeCharacter()
     {
         lastCharacterAction = "Randomizing";
+
         selectRandomBodyType();
         sleep(randomDelay(450, 900));
 
@@ -472,22 +480,6 @@ public class TutorialIslandScript extends Script
         lastCharacterAction = "Confirmed";
     }
 
-    private void selectRandomExperienceOption()
-    {
-        int optionIndex = ThreadLocalRandom.current().nextInt(EXPERIENCE_OPTION_TEXTS.length);
-        String optionText = EXPERIENCE_OPTION_TEXTS[optionIndex];
-        Widget optionWidget = Rs2Widget.findWidget(optionText, null, false);
-        if (optionWidget == null)
-        {
-            return;
-        }
-
-        lastExperienceSelection = "Option " + (optionIndex + 1);
-        sleep(randomDelay(450, 1100));
-        Rs2Widget.clickWidget(optionWidget);
-        sleep(randomDelay(600, 1400));
-    }
-
     private void selectRandomBodyType()
     {
         int bodyTypeChild = ThreadLocalRandom.current().nextBoolean() ? BODY_TYPE_A_CHILD : BODY_TYPE_B_CHILD;
@@ -499,6 +491,7 @@ public class TutorialIslandScript extends Script
         int arrowChild = arrowBaseChild + (ThreadLocalRandom.current().nextBoolean() ? 2 : 3);
         int clickCount = ThreadLocalRandom.current().nextInt(1, 8);
         Widget arrowWidget = Rs2Widget.getWidget(CHARACTER_CREATION_GROUP, arrowChild);
+
         if (arrowWidget == null)
         {
             return;
@@ -511,9 +504,31 @@ public class TutorialIslandScript extends Script
         }
     }
 
+    private void selectRandomExperienceOption()
+    {
+        int optionIndex = ThreadLocalRandom.current().nextInt(EXPERIENCE_OPTION_TEXTS.length);
+        String optionText = EXPERIENCE_OPTION_TEXTS[optionIndex];
+        Widget optionWidget = Rs2Widget.findWidget(optionText, null, false);
+
+        if (optionWidget == null)
+        {
+            return;
+        }
+
+        lastExperienceSelection = "Option " + (optionIndex + 1);
+        sleep(randomDelay(450, 1100));
+
+        Rs2Widget.clickWidget(optionWidget);
+        sleep(randomDelay(600, 1400));
+    }
+
+    // -------------------------------------------------------------------------
+    // Tutorial steps
+    // -------------------------------------------------------------------------
+
     private void gettingStarted()
     {
-        Rs2NpcModel npc = (Rs2NpcModel) Microbot.getRs2NpcCache().query().withId(3308).nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.GIELINOR_GUIDE).nearest();
         int progress = Microbot.getVarbitPlayerValue(281);
 
         if (progress < 3)
@@ -523,6 +538,7 @@ public class TutorialIslandScript extends Script
                 selectRandomExperienceOption();
                 return;
             }
+
             walkAndTalk(npc);
             return;
         }
@@ -536,122 +552,99 @@ public class TutorialIslandScript extends Script
                 Rs2Random.waitEx(1200, 300);
                 return;
             }
-            walkAndTalk(npc);
-            return;
+
+            Rs2Camera.setZoom(Rs2Random.between(400, 450));
+            Rs2Random.waitEx(300, 100);
+            Rs2Camera.setPitch(280);
+            sleepUntil(() -> Rs2Camera.getPitch() > 250);
         }
 
-        if (progress < 10)
-        {
-            Microbot.getRs2TileObjectCache().query().interact(9398, "Open");
-        }
+        walkAndTalk(npc);
     }
 
     private void survivalGuide()
     {
         int progress = Microbot.getVarbitPlayerValue(281);
 
-        /*
-         * Do not advance from the Survival Expert purely on a broad progress range.
-         * The older plugin flow talks to the expert again at 10, 20 and 60, then uses
-         * inventory/tool checks before cutting, fishing, lighting and cooking.
-         */
-        if (progress == 10 || progress == 20 || progress == 60 || !hasSurvivalStarterTools())
+        if (progress == 10 || progress == 20 || progress == 60)
         {
             talkToSurvivalExpert();
-            return;
         }
-
-        if (progress < 40)
+        else if (progress < 40)
         {
-            cutTree();
-            return;
+            clickTab("Inventory");
         }
-
-        if (progress < 60)
-        {
-            lightFire();
-            return;
-        }
-
-        if (progress < 80)
+        else if (progress < 50)
         {
             fishShrimp();
-            return;
         }
-
-        if (progress < 100)
+        else if (progress < 70)
         {
-            completeSurvivalCookingStep();
-            return;
-        }
-
-        Microbot.getRs2TileObjectCache().query().interact(9472, "Open");
-    }
-
-    private boolean hasSurvivalStarterTools()
-    {
-        return Rs2Inventory.contains("Bronze axe") && Rs2Inventory.contains("Tinderbox");
-    }
-
-    private boolean hasRawShrimp()
-    {
-        return Rs2Inventory.contains("Raw shrimps");
-    }
-
-    private boolean hasTutorialLog()
-    {
-        return Rs2Inventory.contains("Logs");
-    }
-
-    private void completeSurvivalCookingStep()
-    {
-        if (!hasSurvivalStarterTools())
-        {
+            clickTab("Skills");
             talkToSurvivalExpert();
-            return;
         }
-
-        if (!hasRawShrimp())
+        else if (progress <= 90)
         {
-            fishShrimp();
-            return;
-        }
-
-        if (getOwnFire() == null)
-        {
-            if (!hasTutorialLog())
+            if (!Rs2Inventory.hasItem("Bronze Axe") || !Rs2Inventory.hasItem("Tinderbox"))
             {
+                talkToSurvivalExpert();
+                return;
+            }
+            if (!Rs2Inventory.hasItem(ItemID.RAW_SHRIMPS_2514))
+            {
+                ownFireLocation = null;
+                fishShrimp();
+                return;
+            }
+            boolean firePresent = ownFireLocation != null && hasNearbyFire();
+            if (!firePresent && !Rs2Inventory.hasItem("Logs"))
+            {
+                ownFireLocation = null;
                 cutTree();
                 return;
             }
-
-            lightFire();
-            return;
+            if (!firePresent)
+            {
+                lightFire();
+                return;
+            }
+            cookShrimpOnOwnFire();
         }
-
-        cookShrimpOnOwnFire();
     }
 
     private boolean talkToSurvivalExpert()
     {
-        Rs2NpcModel npc = (Rs2NpcModel) Microbot.getRs2NpcCache().query().withName("Survival Expert").nearest();
+        if (!walkToArea(SURVIVAL_AREA))
+        {
+            return false;
+        }
+
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.SURVIVAL_EXPERT).nearest();
+
+        if (npc == null)
+        {
+            npc = Microbot.getRs2NpcCache().query().withName("Survival Expert").nearest();
+        }
+
         return walkAndTalk(npc, 4);
     }
 
     private void cookingGuide()
     {
-        Rs2NpcModel npc = (Rs2NpcModel) Microbot.getRs2NpcCache().query().withId(3305).nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.MASTER_CHEF).nearest();
         int progress = Microbot.getVarbitPlayerValue(281);
 
         if (progress == 120)
         {
-            Rs2Keyboard.keyPress(27);
-            Microbot.getRs2TileObjectCache().query().interact(9470, "Open");
+            Rs2Keyboard.keyPress(KeyEvent.VK_ESCAPE);
+            Microbot.getRs2TileObjectCache().query().interact(ObjectID.GATE_9470, "Open");
+            sleepUntil(() -> Microbot.getVarbitPlayerValue(281) != 120);
         }
         else if (progress == 130)
         {
-            walkToArea(COOKING_AREA);
-            Microbot.getRs2TileObjectCache().query().interact(9709, "Open");
+            if (!walkToArea(COOKING_AREA, COOKING_AREA_WALK_TILE)) return;
+            Microbot.getRs2TileObjectCache().query().interact(ObjectID.DOOR_9709, "Open");
+            sleepUntil(() -> Microbot.getVarbitPlayerValue(281) != 130);
         }
         else if (progress == 140)
         {
@@ -662,62 +655,202 @@ public class TutorialIslandScript extends Script
             if (!Rs2Inventory.contains("Bread dough") && !Rs2Inventory.contains("Bread"))
             {
                 Rs2Inventory.combine("Bucket of water", "Pot of flour");
+                sleepUntil(() -> Rs2Inventory.contains("Dough"), 2000);
             }
             else if (Rs2Inventory.contains("Bread dough"))
             {
                 Rs2Inventory.interact("Bread dough");
                 Microbot.getRs2TileObjectCache().query().interact(9736, "Use");
+                sleepUntil(() -> Rs2Inventory.contains("Bread"));
             }
-            else if (Rs2Inventory.contains("Bread"))
+            else if (Rs2Inventory.contains("Bread")
+                    && Microbot.getRs2TileObjectCache().query().interact(9710, "Open"))
             {
-                Microbot.getRs2TileObjectCache().query().interact(9710, "Open");
+                Rs2Random.waitEx(2400, 100);
             }
         }
     }
 
     private void questGuide()
     {
-        Rs2NpcModel npc = (Rs2NpcModel) Microbot.getRs2NpcCache().query().withName("Quest Guide").nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.QUEST_GUIDE).nearest();
         int progress = Microbot.getVarbitPlayerValue(281);
-        if (progress <= 250)
+
+        if (progress == 200 || progress == 210)
         {
-            if (!QUEST_GUIDE_AREA.contains(Rs2Player.getWorldLocation()))
-            {
-                walkToArea(QUEST_GUIDE_AREA);
-                return;
-            }
+            if (!walkToArea(QUEST_GUIDE_AREA, QUEST_GUIDE_WALK_TILE)) return;
+            Microbot.getRs2TileObjectCache().query().interact(9716, "Open");
+            Rs2Random.waitEx(1200, 300);
+        }
+        else if (progress == 220 || progress == 240)
+        {
             walkAndTalk(npc);
+        }
+        else if (progress == 230)
+        {
+            clickTab("Quest List");
+        }
+        else
+        {
+            Rs2Tab.switchTo(InterfaceTab.INVENTORY);
+            Rs2Random.waitEx(600, 100);
+            Microbot.getRs2TileObjectCache().query().interact(9726, "Climb-down");
+            Rs2Random.waitEx(2400, 100);
         }
     }
 
     private void miningGuide()
     {
-        Rs2NpcModel npc = (Rs2NpcModel) Microbot.getRs2NpcCache().query().withName("Mining Instructor").nearest();
-        int progress = Microbot.getVarbitPlayerValue(281);
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.MINING_INSTRUCTOR).nearest();
 
-        if (!MINING_SMITHING_AREA.contains(Rs2Player.getWorldLocation()))
+        if (Microbot.getVarbitPlayerValue(281) == 260)
         {
-            walkToArea(MINING_SMITHING_AREA);
+            Rs2Walker.walkTo(new WorldPoint(3082, 9505, 0), 2);
+            Rs2Player.waitForWalking();
+            walkAndTalk(npc);
             return;
         }
 
-        if (progress <= 270)
+        if (Rs2Inventory.contains("Bronze dagger"))
+        {
+            Microbot.getRs2TileObjectCache().query().interact(ObjectID.GATE_9718, "Open");
+            sleepUntil(() -> Microbot.getVarbitPlayerValue(281) > 360);
+            return;
+        }
+
+        if (Rs2Inventory.contains("Bronze bar") && Rs2Inventory.contains("Hammer"))
+        {
+            Microbot.getClientThread().invoke(() ->
+                    Microbot.getRs2TileObjectCache().query().withName("Anvil").interact("Smith"));
+            sleepUntil(Rs2Widget::isSmithingWidgetOpen);
+            Rs2Widget.clickWidget(312, 9);
+            Rs2Random.waitEx(1200, 300);
+            sleepUntil(() -> Rs2Inventory.contains("Bronze dagger") && !Rs2Player.isAnimating(1800));
+            return;
+        }
+
+        if (Rs2Inventory.contains("Bronze bar") && !Rs2Inventory.contains("Hammer"))
         {
             walkAndTalk(npc);
+            return;
         }
-        else if (progress <= 320)
+
+        if (Rs2Inventory.contains("Bronze pickaxe")
+                && (!Rs2Inventory.contains("Copper ore") || !Rs2Inventory.contains("Tin ore")))
         {
-            Microbot.getRs2TileObjectCache().query().interact(10080, "Mine");
-        }
-        else if (progress <= 340)
-        {
-            Microbot.getRs2TileObjectCache().query().interact(10082, "Mine");
-        }
-        else if (progress <= 360)
-        {
-            if (Rs2Inventory.contains("Tin ore") && Rs2Inventory.contains("Copper ore"))
+            List<Integer> rockIds = new ArrayList<>();
+            if (!Rs2Inventory.contains("Copper ore"))
             {
-                Microbot.getRs2TileObjectCache().query().interact(10082, "Smelt");
+                rockIds.add(ObjectID.COPPER_ROCKS);
+            }
+            if (!Rs2Inventory.contains("Tin ore"))
+            {
+                rockIds.add(ObjectID.TIN_ROCKS);
+            }
+
+            Collections.shuffle(rockIds);
+            int rockId = rockIds.get(0);
+
+            Microbot.getRs2TileObjectCache().query().interact(rockId, "Mine");
+            sleepUntil(() -> rockId == ObjectID.COPPER_ROCKS
+                    ? Rs2Inventory.contains("Copper ore") && !Rs2Player.isAnimating(1800)
+                    : Rs2Inventory.contains("Tin ore") && !Rs2Player.isAnimating(1800));
+        }
+        else if (Rs2Inventory.contains("Copper ore") && Rs2Inventory.contains("Tin ore"))
+        {
+            List<Integer> ores = Arrays.asList(ItemID.TIN_ORE, ItemID.COPPER_ORE);
+            Collections.shuffle(ores);
+            Rs2Inventory.useItemOnObject(ores.get(0), ObjectID.FURNACE_10082);
+            sleepUntil(() -> Rs2Inventory.contains("Bronze bar") && !Rs2Player.isAnimating(1800));
+        }
+    }
+
+    private void combatGuide()
+    {
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.COMBAT_INSTRUCTOR).nearest();
+        int progress = Microbot.getVarbitPlayerValue(281);
+
+        if (progress <= 370)
+        {
+            if (!walkToArea(COMBAT_INSTRUCTOR_AREA)) return;
+            walkAndTalk(npc);
+        }
+        else if (progress <= 410)
+        {
+            if (isInDialogue())
+            {
+                clickContinue();
+                return;
+            }
+            clickTab("Worn Equipment");
+            Rs2Widget.clickWidget(387, 1);
+            sleepUntil(() -> Rs2Widget.getWidget(84, 1) != null);
+            Rs2Random.waitEx(1200, 300);
+            Rs2Widget.clickWidget("Bronze dagger");
+            Rs2Random.waitEx(2400, 300);
+            closeEquipmentStats();
+            walkAndTalk(npc);
+        }
+        else if (progress == 500)
+        {
+            Rs2Walker.walkTo(new WorldPoint(3111, 9526, Rs2Player.getWorldLocation().getPlane()));
+            Rs2Player.waitForWalking();
+            Microbot.getClientThread().invoke(() ->
+                    Microbot.getRs2TileObjectCache().query().withName("Ladder").interact("Climb-up"));
+            sleepUntil(() -> Microbot.getVarbitPlayerValue(281) != 500);
+        }
+        else if (progress == 480 || progress == 490)
+        {
+            Actor rat = Rs2Player.getInteracting();
+            if (rat != null && rat.getName().equalsIgnoreCase("giant rat"))
+            {
+                return;
+            }
+            if (Rs2Inventory.hasItem("Shortbow"))
+            {
+                Rs2Inventory.wield("Shortbow");
+                Rs2Random.waitEx(600, 100);
+            }
+            if (Rs2Inventory.hasItem("Bronze arrow"))
+            {
+                Rs2Inventory.wield("Bronze arrow");
+                Rs2Random.waitEx(600, 100);
+            }
+            selectLongrangeCombatStyle();
+            attackNearestRat();
+        }
+        else if (progress == 470)
+        {
+            Rs2Walker.walkTo(new WorldPoint(3108, 9508, 0), 2);
+            Rs2Player.waitForWalking();
+            walkAndTalk(npc);
+        }
+        else if (progress == 430)
+        {
+            clickTab("Combat Options");
+        }
+        else if (progress >= 420)
+        {
+            if (isInDialogue())
+            {
+                clickContinue();
+                return;
+            }
+            if (Microbot.getClient().getLocalPlayer().isInteracting() || Rs2Player.isAnimating())
+            {
+                return;
+            }
+            if (Rs2Equipment.isWearing("Bronze sword"))
+            {
+                walkAndAttackRat();
+            }
+            else if (Rs2Inventory.hasItem("Bronze sword"))
+            {
+                Rs2Tab.switchTo(InterfaceTab.INVENTORY);
+                Rs2Random.waitEx(600, 100);
+                Rs2Inventory.wield("Bronze sword");
+                Rs2Random.waitEx(600, 100);
+                Rs2Inventory.wield("Wooden shield");
             }
             else
             {
@@ -726,109 +859,193 @@ public class TutorialIslandScript extends Script
         }
     }
 
-    private void combatGuide()
-    {
-        Rs2NpcModel instructor = (Rs2NpcModel) Microbot.getRs2NpcCache().query().withName("Combat Instructor").nearest();
-        int progress = Microbot.getVarbitPlayerValue(281);
-
-        if (progress < 370)
-        {
-            walkAndTalk(instructor);
-        }
-        else if (progress < 410)
-        {
-            if (!RAT_PIT_AREA.contains(Rs2Player.getWorldLocation()))
-            {
-                Microbot.getRs2TileObjectCache().query().interact(9719, "Open");
-                return;
-            }
-            attackNearestRat();
-        }
-        else if (progress < 510)
-        {
-            if (progress >= 480)
-            {
-                selectLongrangeCombatStyle();
-            }
-            walkAndAttackRat();
-        }
-    }
-
     private void bankerGuide()
     {
-        Rs2NpcModel banker = (Rs2NpcModel) Microbot.getRs2NpcCache().query().withName("Banker").nearest();
-        Rs2NpcModel accountGuide = (Rs2NpcModel) Microbot.getRs2NpcCache().query().withName("Account Guide").nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.ACCOUNT_GUIDE).nearest();
         int progress = Microbot.getVarbitPlayerValue(281);
 
-        if (!TUT_ISLAND_BANK_AREA.contains(Rs2Player.getWorldLocation()))
+        if (progress == 510)
         {
-            walkToArea(TUT_ISLAND_BANK_AREA);
-            return;
+            // Use a specific walkable tile near the bank entrance — randomPoint() can land on
+            // unreachable counter/wall tiles inside the bank building (seen at 3128,3118).
+            WorldPoint bankEntrance = new WorldPoint(3120, 3124, 0);
+            Rs2Walker.walkTo(bankEntrance, 5);
+            Rs2Player.waitForWalking();
+            Microbot.getRs2TileObjectCache().query().interact(ObjectID.BANK_BOOTH_10083);
+            sleepUntil(() -> Microbot.getVarbitPlayerValue(281) != 510);
         }
-
-        if (progress < 530)
+        else if (progress == 520)
         {
-            walkAndTalk(banker);
+            handleBankSpaceAndPollBooth();
         }
-        else
+        else if (progress == 525 || progress == 530)
         {
-            walkAndTalk(accountGuide);
+            closePollOrOptionsWidget();
+            if (npc != null)
+            {
+                Rs2Walker.walkTo(npc.getWorldLocation(), 3);
+                Rs2Player.waitForWalking();
+                walkAndTalk(npc);
+            }
+        }
+        else if (progress == 531)
+        {
+            clickTab("Account Management");
+        }
+        else if (progress == 532)
+        {
+            if (Rs2Dialogue.isInDialogue())
+            {
+                clickContinue();
+                return;
+            }
+            walkAndTalk(npc);
         }
     }
 
     private void prayerGuide()
     {
-        Rs2NpcModel npc = (Rs2NpcModel) Microbot.getRs2NpcCache().query().withName("Brother Brace").nearest();
-        if (!CHURCH_AREA.contains(Rs2Player.getWorldLocation()))
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.BROTHER_BRACE).nearest();
+        int progress = Microbot.getVarbitPlayerValue(281);
+
+        if (progress == 640 || progress == 550 || progress == 540)
         {
-            walkToArea(CHURCH_AREA);
-            return;
+            Rs2Walker.walkTo(new WorldPoint(3125, 3106, 0), 3);
+            Rs2Player.waitForWalking();
+            walkAndTalk(npc);
         }
-        walkAndTalk(npc);
+        else if (progress == 560)
+        {
+            clickTab("Prayer");
+        }
+        else if (progress == 570)
+        {
+            walkAndTalk(npc);
+        }
+        else if (progress == 580)
+        {
+            clickTab("Friends list");
+        }
+        else if (progress == 600)
+        {
+            walkAndTalk(npc);
+        }
     }
 
     private void mageGuide()
     {
-        Rs2NpcModel npc = (Rs2NpcModel) Microbot.getRs2NpcCache().query().withName("Magic Instructor").nearest();
-        if (!TUTORIAL_END_AREA.contains(Rs2Player.getWorldLocation()))
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.MAGIC_INSTRUCTOR).nearest();
+        int progress = Microbot.getVarbitPlayerValue(281);
+
+        if (progress == 610 || progress == 620)
         {
-            walkToArea(TUTORIAL_END_AREA);
-            return;
+            Rs2Walker.walkTo(new WorldPoint(3142, 3089, 0), 3);
+            Rs2Player.waitForWalking();
+            walkAndTalk(npc);
         }
-        handleFinalMageDialogue();
-        walkAndTalk(npc);
+        else if (progress == 630)
+        {
+            clickTab("Magic");
+        }
+        else if (progress == 640)
+        {
+            walkAndTalk(npc);
+        }
+        else if (progress == 650)
+        {
+            widgetCast();
+        }
+        else if (progress >= 680)
+        {
+            if (isInDialogue())
+            {
+                handleFinalMageDialogue();
+                return;
+            }
+            castHomeTeleport();
+        }
+        else if (progress >= 660)
+        {
+            if (isInDialogue())
+            {
+                handleFinalMageDialogue();
+                return;
+            }
+            walkAndTalk(npc);
+        }
     }
 
     private void handleFinalMageDialogue()
     {
-        if (Rs2Dialogue.hasContinue())
+        if (hasSelectAnOption())
         {
-            Rs2Dialogue.clickContinue();
+            if (Rs2Dialogue.keyPressForDialogueOption("Yes, I'd like to go to the mainland")) return;
+            if (Rs2Dialogue.keyPressForDialogueOption("Yes, send me to the mainland")) return;
+            if (Rs2Dialogue.keyPressForDialogueOption("Yes")) return;
+            Rs2Dialogue.keyPressForDialogueOption(1);
+            return;
         }
+
+        Rs2Dialogue.clickContinue();
     }
 
     private boolean castHomeTeleport()
     {
-        return false;
+        if (Rs2Tab.getCurrentTab() != InterfaceTab.MAGIC)
+        {
+            Rs2Tab.switchTo(InterfaceTab.MAGIC);
+            Rs2Random.waitEx(600, 100);
+        }
+
+        Widget homeTeleport = Rs2Widget.findWidget("Lumbridge Home Teleport", true);
+
+        if (homeTeleport == null)
+        {
+            homeTeleport = Rs2Widget.findWidget("Home Teleport", true);
+        }
+
+        if (homeTeleport == null)
+        {
+            return false;
+        }
+
+        Rs2Widget.clickWidget(homeTeleport);
+        sleepUntil(() -> {
+            WorldPoint point = Rs2Player.getWorldLocation();
+            return point != null && point.getX() >= 3200;
+        }, 15_000);
+        return true;
     }
+
+    // -------------------------------------------------------------------------
+    // Completion and login queue
+    // -------------------------------------------------------------------------
 
     private void handleTutorialComplete()
     {
         if (!shouldRunMultipleAccounts())
         {
             completionState = "Finished";
+            shutdown();
             return;
         }
 
-        long now = System.currentTimeMillis();
-        if (!completionLogoutRequested || now - lastCompletionLogoutAttemptAtMs >= COMPLETION_LOGOUT_RETRY_MS)
+        completionState = "Logging out";
+
+        if (!completionLogoutRequested)
         {
             completionLogoutRequested = true;
-            completionState = "Logout requested";
-            lastCompletionLogoutAttemptAtMs = now;
-            Microbot.getClient().getCanvas().requestFocus();
-            Rs2Keyboard.keyPress(27);
+            resetAccountProgressState();
         }
+
+        long now = System.currentTimeMillis();
+        if (now - lastCompletionLogoutAttemptAtMs < COMPLETION_LOGOUT_RETRY_MS)
+        {
+            return;
+        }
+
+        lastCompletionLogoutAttemptAtMs = now;
+        Rs2Player.logout();
     }
 
     private void handleQueuedLogin()
@@ -838,88 +1055,155 @@ public class TutorialIslandScript extends Script
             return;
         }
 
-        if (pendingQueuedLoginIndex >= 0)
+        if (isRuleBreakingLoginBlockVisible())
         {
-            if (isQueuedLoginTimedOut(System.currentTimeMillis()))
-            {
-                skipFailedQueuedLogin();
-            }
+            skipFailedQueuedLogin();
+            clickLoginBackButton();
             return;
         }
 
-        AccountQueueEntry next = getNextQueuedAccount();
-        if (next == null)
+        AccountQueueEntry account = getNextQueuedAccount();
+
+        if (account == null)
         {
-            queuedAccountName = "None";
+            completionState = "Queue empty";
             return;
         }
 
-        performQueuedLogin(next, accountQueueIndex);
+        long now = System.currentTimeMillis();
+
+        if (isQueuedLoginTimedOut(now))
+        {
+            skipFailedQueuedLogin();
+            return;
+        }
+
+        if (now - lastQueueLoginAttemptAtMs < QUEUE_LOGIN_RETRY_MS)
+        {
+            return;
+        }
+
+        lastQueueLoginAttemptAtMs = now;
+        queuedAccountName = account.username;
+        completionState = "Logging in";
+
+        if (pendingQueuedLoginIndex < 0 || pendingQueuedLoginIndex != accountQueueIndex)
+        {
+            pendingQueuedLoginIndex = accountQueueIndex;
+            queuedLoginStartedAtMs = now;
+        }
+
+        int world = account.world > 0 ? account.world : Login.getRandomWorld(false);
+        performQueuedLogin(account, world);
     }
 
-    private boolean performQueuedLogin(AccountQueueEntry entry, int index)
+    private boolean performQueuedLogin(AccountQueueEntry account, int world)
     {
-        long now = System.currentTimeMillis();
-        if (now - lastQueueLoginAttemptAtMs < QUEUE_LOGIN_RETRY_MS)
+        Client client = Microbot.getClient();
+
+        if (client == null)
         {
             return false;
         }
 
-        pendingQueuedLoginIndex = index;
-        queuedLoginStartedAtMs = now;
-        lastQueueLoginAttemptAtMs = now;
-        queuedAccountName = entry.username;
+        try
+        {
+            LoginManager.setWorld(world);
+        }
+        catch (Exception ignored)
+        {
+        }
+
+        if (client.getLoginIndex() == 3 || client.getLoginIndex() == 24)
+        {
+            Rs2Keyboard.keyPress(KeyEvent.VK_ENTER);
+            sleep(randomDelay(700, 1200));
+        }
+
+        client.setUsername(account.username);
+        sleep(randomDelay(QUEUED_LOGIN_EMAIL_PASSWORD_DELAY_MIN_MS, QUEUED_LOGIN_EMAIL_PASSWORD_DELAY_MAX_MS));
+        client.setPassword(account.password);
+        sleep(randomDelay(400, 900));
+        Rs2Keyboard.keyPress(KeyEvent.VK_ENTER);
+        sleep(randomDelay(350, 700));
+        Rs2Keyboard.keyPress(KeyEvent.VK_ENTER);
+
         return true;
     }
 
     private void completeQueuedLoginIfNeeded()
     {
-        if (pendingQueuedLoginIndex >= 0)
+        if (pendingQueuedLoginIndex < 0)
         {
-            accountQueueIndex = pendingQueuedLoginIndex + 1;
-            pendingQueuedLoginIndex = -1;
-            queuedAccountName = "None";
-            resetAccountProgressState();
+            return;
         }
+
+        accountQueueIndex = Math.max(accountQueueIndex, pendingQueuedLoginIndex + 1);
+        pendingQueuedLoginIndex = -1;
+        queuedLoginStartedAtMs = 0L;
+        completionState = "Active";
     }
 
     private boolean isQueuedLoginTimedOut(long now)
     {
-        return queuedLoginStartedAtMs > 0 && now - queuedLoginStartedAtMs > QUEUE_LOGIN_SKIP_MS;
+        return pendingQueuedLoginIndex >= 0
+                && queuedLoginStartedAtMs > 0
+                && now - queuedLoginStartedAtMs >= QUEUE_LOGIN_SKIP_MS;
     }
 
     private void skipFailedQueuedLogin()
     {
-        if (pendingQueuedLoginIndex >= 0)
-        {
-            accountQueueIndex = pendingQueuedLoginIndex + 1;
-        }
+        accountQueueIndex = Math.max(accountQueueIndex, pendingQueuedLoginIndex + 1);
         pendingQueuedLoginIndex = -1;
-        queuedAccountName = "None";
+        queuedLoginStartedAtMs = 0L;
+        lastQueueLoginAttemptAtMs = 0L;
+        completionState = "Skipped login";
     }
 
     private boolean isRuleBreakingLoginBlockVisible()
     {
-        return Rs2Widget.hasWidget("You may appeal this ban") || Rs2Widget.hasWidget("disabled");
+        return Rs2Widget.hasWidget("Your account has been involved")
+                || Rs2Widget.hasWidget("serious rule breaking")
+                || Rs2Widget.hasWidget("View Appeal Options");
     }
 
     private void clickLoginBackButton()
     {
-        Rs2Keyboard.keyPress(27);
+        Widget backButton = Rs2Widget.findWidget("Back", true);
+
+        if (backButton != null)
+        {
+            Rs2Widget.clickWidget(backButton);
+            sleep(randomDelay(600, 1200));
+            return;
+        }
+
+        Client client = Microbot.getClient();
+
+        if (client == null)
+        {
+            return;
+        }
+
+        int loginBoxWidth = 804;
+        int loginBoxX = (client.getCanvasWidth() / 2) - (loginBoxWidth / 2);
+        int buttonX = loginBoxX + 365;
+        int buttonY = 222;
+
+        Microbot.getMouse().click(buttonX, buttonY);
+        sleep(randomDelay(600, 1200));
     }
 
     private AccountQueueEntry getNextQueuedAccount()
     {
-        List<AccountQueueEntry> entries = parseAccountQueue();
-        if (accountQueueIndex < 0)
-        {
-            accountQueueIndex = 0;
-        }
-        if (accountQueueIndex >= entries.size())
+        List<AccountQueueEntry> accounts = parseAccountQueue();
+
+        if (accountQueueIndex >= accounts.size())
         {
             return null;
         }
-        return entries.get(accountQueueIndex);
+
+        return accounts.get(accountQueueIndex);
     }
 
     private List<AccountQueueEntry> parseAccountQueue()
@@ -927,237 +1211,415 @@ public class TutorialIslandScript extends Script
         return new ArrayList<>();
     }
 
-    private AccountQueueEntry parseAccountQueueLine(String line)
-    {
-        if (line == null || line.trim().isEmpty())
-        {
-            return null;
-        }
-
-        String[] parts = line.trim().split(":");
-        if (parts.length < 2)
-        {
-            return null;
-        }
-
-        int world = parts.length >= 3 ? parseWorld(parts[2]) : -1;
-        return new AccountQueueEntry(parts[0].trim(), parts[1].trim(), world);
-    }
-
-    private int parseWorld(String value)
-    {
-        try
-        {
-            return Integer.parseInt(value.trim());
-        }
-        catch (Exception ignored)
-        {
-            return -1;
-        }
-    }
-
     private boolean shouldRunMultipleAccounts()
     {
         return false;
     }
 
+    // -------------------------------------------------------------------------
+    // State reset
+    // -------------------------------------------------------------------------
+
     private void resetAccountState()
     {
-        resetAccountProgressState();
+        completionLogoutRequested = false;
+        lastCompletionLogoutAttemptAtMs = 0L;
         accountQueueIndex = 0;
         pendingQueuedLoginIndex = -1;
+        lastQueueLoginAttemptAtMs = 0L;
+        queuedLoginStartedAtMs = 0L;
         queuedAccountName = "None";
-        lastQueueLoginAttemptAtMs = 0;
-        queuedLoginStartedAtMs = 0;
+        completionState = "Active";
+        resetAccountProgressState();
     }
 
     private void resetAccountProgressState()
     {
-        lastNameAttemptAtMs = 0;
+        toggledSettings = false;
+        ownFireLocation = null;
+        lastQueueLoginAttemptAtMs = 0L;
+        lastNameAttemptAtMs = 0L;
         lastGeneratedName = "None";
         lastCharacterAction = "Waiting";
         lastExperienceSelection = "None";
-        completionState = "Active";
-        status = Status.NAME;
-        toggledSettings = false;
-        completionLogoutRequested = false;
-        lastCompletionLogoutAttemptAtMs = 0;
-        ownFireLocation = null;
     }
+
+    // -------------------------------------------------------------------------
+    // NPC walk/talk helpers
+    // -------------------------------------------------------------------------
 
     private boolean walkAndTalk(Rs2NpcModel npc)
     {
         return walkAndTalk(npc, 2);
     }
 
-    private boolean walkAndTalk(Rs2NpcModel npc, int distance)
+    private boolean walkAndTalk(Rs2NpcModel npc, int reach)
     {
-        return walkAndAct(npc, distance, "Talk-to", () -> { });
+        return walkAndAct(npc, reach, "Talk-to", () -> sleepUntil(Rs2Dialogue::isInDialogue, 5000));
     }
 
-    private boolean walkAndAct(Rs2NpcModel npc, int distance, String action, Runnable afterWalk)
+    private boolean walkAndAct(Rs2NpcModel npc, int reach, String action, Runnable afterClick)
     {
         if (npc == null)
         {
             return false;
         }
 
-        WorldPoint playerLocation = Rs2Player.getWorldLocation();
         WorldPoint npcLocation = npc.getWorldLocation();
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
 
-        if (playerLocation != null && npcLocation != null
-                && playerLocation.distanceTo(npcLocation) > distance)
+        if (npcLocation == null || playerLocation == null)
         {
-            Rs2Walker.walkTo(npcLocation);
-            if (afterWalk != null)
-            {
-                afterWalk.run();
-            }
             return false;
         }
 
-        return npc.click(action);
+        if (playerLocation.distanceTo(npcLocation) > reach)
+        {
+            Rs2Walker.walkTo(npcLocation, reach);
+            Rs2Player.waitForWalking();
+            return false;
+        }
+
+        if (npc.click(action))
+        {
+            if (afterClick != null)
+            {
+                afterClick.run();
+            }
+            return true;
+        }
+
+        return false;
     }
+
+    // -------------------------------------------------------------------------
+    // Combat helpers
+    // -------------------------------------------------------------------------
 
     private boolean walkAndAttackRat()
     {
-        if (!RAT_PIT_AREA.contains(Rs2Player.getWorldLocation()))
+        WorldPoint insidePen = new WorldPoint(3102, 9518, 0);
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+
+        if (playerLocation == null || playerLocation.distanceTo(insidePen) > 3)
         {
-            Microbot.getRs2TileObjectCache().query().interact(9719, "Open");
+            Rs2Walker.walkTo(insidePen, 2);
+            Rs2Player.waitForWalking();
             return false;
         }
-        return attackNearestRat();
+
+        Rs2NpcModel rat = Microbot.getRs2NpcCache().query().withName("Giant rat").nearest();
+        if (rat == null || rat.getWorldLocation() == null)
+        {
+            return false;
+        }
+        return rat.click("Attack");
     }
 
     private boolean attackNearestRat()
     {
-        Rs2NpcModel rat = (Rs2NpcModel) Microbot.getRs2NpcCache().query()
-                .withName("Giant rat")
-                .nearest();
+        Rs2NpcModel rat = Microbot.getRs2NpcCache().query().withName("Giant rat").nearest();
 
         if (rat == null)
         {
-            rat = (Rs2NpcModel) Microbot.getRs2NpcCache().query()
-                    .withName("Rat")
-                    .nearest();
+            return false;
         }
 
-        return rat != null && rat.click("Attack");
+        return rat.click("Attack");
     }
 
     private boolean selectLongrangeCombatStyle()
     {
         clickTab("Combat Options");
-        return Rs2Widget.hasWidget("Longrange") && Rs2Widget.findWidget("Longrange", null, false) != null;
-    }
 
-    private void clickTab(String name)
-    {
-        Widget widget = Rs2Widget.findWidget(name, null, false);
-        if (widget != null)
+        Widget longrange = Rs2Widget.findWidget("Longrange", true);
+
+        if (longrange == null)
         {
-            Rs2Widget.clickWidget(widget);
+            longrange = Rs2Widget.findWidget("Long range", true);
         }
-    }
 
-    private void closeEquipmentStats()
-    {
-        if (Rs2Widget.hasWidget("Equipment Stats"))
+        if (longrange == null)
         {
-            Rs2Keyboard.keyPress(27);
+            return false;
         }
+
+        Rs2Widget.clickWidget(longrange);
+        Rs2Random.waitEx(600, 100);
+        return true;
     }
 
-    private void handleBankSpaceAndPollBooth()
-    {
-        closePollOrOptionsWidget();
-    }
-
-    private void closePollOrOptionsWidget()
-    {
-        if (Rs2Widget.hasWidget("Poll") || Rs2Widget.hasWidget("Options"))
-        {
-            Rs2Keyboard.keyPress(27);
-        }
-    }
+    // -------------------------------------------------------------------------
+    // Skilling helpers
+    // -------------------------------------------------------------------------
 
     private void lightFire()
     {
-        if (Rs2Inventory.contains("Logs") && Rs2Inventory.contains("Tinderbox"))
+        WorldPoint fireLocation = Rs2Player.getWorldLocation();
+
+        if (Rs2Player.isStandingOnGameObject())
         {
-            WorldPoint before = Rs2Player.getWorldLocation();
-            Rs2Inventory.combine("Tinderbox", "Logs");
-            ownFireLocation = before;
+            WorldPoint nearestWalkable = Rs2Tile.getNearestWalkableTileWithLineOfSight(Rs2Player.getWorldLocation());
+            Rs2Walker.walkFastCanvas(nearestWalkable);
+            Rs2Player.waitForWalking();
+            fireLocation = Rs2Player.getWorldLocation();
+        }
+
+        Rs2Inventory.combine("Logs", "Tinderbox");
+
+        WorldPoint confirmedLocation = fireLocation;
+        boolean fireConfirmed = sleepUntil(() -> !Rs2Inventory.hasItem("Logs"), 5000);
+
+        if (fireConfirmed)
+        {
+            ownFireLocation = confirmedLocation;
         }
     }
 
     private void cutTree()
     {
-        Microbot.getRs2TileObjectCache().query().interact(9730, "Chop down");
+        Microbot.getClientThread().invoke(() ->
+                Microbot.getRs2TileObjectCache().query().withName("Tree").interact("Chop down"));
+        sleepUntil(() -> Rs2Inventory.hasItem("Logs") && !Rs2Player.isAnimating(2400));
     }
 
     private void fishShrimp()
     {
-        Rs2NpcModel fishingSpot = (Rs2NpcModel) Microbot.getRs2NpcCache().query()
-                .withName("Fishing spot")
-                .nearest();
-
-        if (fishingSpot != null && fishingSpot.click("Net"))
-        {
-            sleepUntil(() -> hasRawShrimp(), 5_000);
-        }
+        Microbot.getRs2NpcCache().query().withId(NpcID.FISHING_SPOT_3317).interact("Net");
+        sleepUntil(() -> Rs2Inventory.contains(false, "shrimps"));
     }
 
     private void cookShrimpOnOwnFire()
     {
-        Rs2TileObjectModel fire = getOwnFire();
-
-        if (fire == null || !Rs2Inventory.contains("Raw shrimps"))
+        if (!Rs2Inventory.interact(ItemID.RAW_SHRIMPS_2514, "Use"))
         {
             return;
         }
 
-        Rs2Inventory.interact("Raw shrimps");
-        sleep(randomDelay(250, 500));
-        fire.click("Use");
+        Rs2Random.waitEx(240, 80);
+        Microbot.getRs2TileObjectCache().query().withId(ObjectID.FIRE_26185).interact("Use");
+        sleepUntil(() -> !Rs2Inventory.hasItem(ItemID.RAW_SHRIMPS_2514)
+                || Microbot.getVarbitPlayerValue(281) > 90, 5000);
     }
 
-    private Rs2TileObjectModel getOwnFire()
+    private boolean hasNearbyFire()
     {
-        if (ownFireLocation == null)
-        {
-            return null;
-        }
-
-        return getFireAt(ownFireLocation);
+        return Microbot.getRs2TileObjectCache().query().withId(ObjectID.FIRE_26185).nearest() != null;
     }
 
-    private Rs2TileObjectModel getFireAt(WorldPoint point)
-    {
-        if (point == null)
-        {
-            return null;
-        }
-
-        return Microbot.getRs2TileObjectCache().query()
-                .where(tileObject -> tileObject.getWorldLocation() != null
-                        && point.equals(tileObject.getWorldLocation()))
-                .nearest();
-    }
+    // -------------------------------------------------------------------------
+    // Magic helper
+    // -------------------------------------------------------------------------
 
     private boolean widgetCast()
     {
-        return Rs2Widget.hasWidget("Cast");
-    }
-
-    private boolean walkToArea(WorldArea area)
-    {
-        WorldPoint location = Rs2Player.getWorldLocation();
-        if (location != null && area.contains(location))
+        if (Rs2Player.isAnimating() || Rs2Player.getInteracting() != null)
         {
             return true;
         }
-        return Rs2Walker.walkTo(randomPoint(area));
+
+        Widget windStrike = Rs2Widget.findWidget("Wind Strike", null, true);
+
+        if (windStrike == null)
+        {
+            windStrike = Rs2Widget.getWidget(218, 11);
+        }
+        if (windStrike == null)
+        {
+            return false;
+        }
+
+        boolean hidden;
+        try
+        {
+            hidden = Rs2Widget.isHidden(windStrike.getId());
+        }
+        catch (Exception ignored)
+        {
+            hidden = true;
+        }
+
+        if (hidden)
+        {
+            clickTab("Magic");
+            windStrike = Rs2Widget.getWidget(218, 8);
+
+            if (windStrike == null)
+            {
+                windStrike = Rs2Widget.findWidget("Wind Strike", null, true);
+            }
+            if (windStrike == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (Rs2Widget.isHidden(windStrike.getId()))
+                {
+                    return false;
+                }
+            }
+            catch (Exception ignored)
+            {
+                return false;
+            }
+        }
+
+        Rs2Widget.clickWidget(windStrike);
+        Rs2Random.waitEx(150, 50);
+
+        Rs2NpcModel chicken = Microbot.getRs2NpcCache().query().withName("chicken").nearestOnClientThread();
+
+        if (chicken == null)
+        {
+            return false;
+        }
+
+        if (!chicken.click("Cast"))
+        {
+            chicken.click("Cast");
+        }
+
+        sleepUntil(() -> Rs2Player.isAnimating() || Microbot.getVarbitPlayerValue(281) != 650, 2000);
+        return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // UI helpers
+    // -------------------------------------------------------------------------
+
+    private void clickTab(String tabName)
+    {
+        Widget widget = Rs2Widget.findWidget(tabName, true);
+
+        if (widget != null)
+        {
+            Rs2Widget.clickWidget(widget);
+            Rs2Random.waitEx(1200, 300);
+        }
+    }
+
+    private void closeEquipmentStats()
+    {
+        if (!Rs2Widget.isWidgetVisible(84, 3))
+        {
+            return;
+        }
+
+        Widget widgetOptions = Rs2Widget.getWidget(84, 3);
+
+        if (widgetOptions == null || widgetOptions.getDynamicChildren() == null)
+        {
+            return;
+        }
+
+        for (Widget dynamicWidgetOption : widgetOptions.getDynamicChildren())
+        {
+            String[] actionsText = dynamicWidgetOption.getActions();
+
+            if (actionsText != null
+                    && Arrays.stream(actionsText).anyMatch(a -> a.equalsIgnoreCase("close")))
+            {
+                Rs2Widget.clickWidget(dynamicWidgetOption);
+                Rs2Random.waitEx(1200, 300);
+                return;
+            }
+        }
+    }
+
+    private void handleBankSpaceAndPollBooth()
+    {
+        if (Rs2Widget.isWidgetVisible(928, 4))
+        {
+            Rs2Widget.clickWidget(928, 4);
+            Rs2Random.waitEx(1200, 300);
+            return;
+        }
+
+        if (Rs2Widget.isWidgetVisible(289, 5))
+        {
+            Widget widgetOptions = Rs2Widget.getWidget(289, 4);
+
+            if (widgetOptions != null && widgetOptions.getDynamicChildren() != null)
+            {
+                for (Widget dynamicWidgetOption : widgetOptions.getDynamicChildren())
+                {
+                    String widgetText = dynamicWidgetOption.getText();
+
+                    if (widgetText != null && widgetText.equalsIgnoreCase("Want more bank space?"))
+                    {
+                        Rs2Widget.clickWidget(289, 7);
+                        Rs2Random.waitEx(1200, 300);
+                        break;
+                    }
+                }
+            }
+        }
+
+        Rs2Bank.closeBank();
+        sleepUntil(() -> !Rs2Bank.isOpen());
+        Microbot.getRs2TileObjectCache().query().interact(26815);
+        sleepUntil(() -> Microbot.getVarbitPlayerValue(281) != 520 || Rs2Widget.isWidgetVisible(928, 4));
+    }
+
+    private void closePollOrOptionsWidget()
+    {
+        if (Rs2Widget.isWidgetVisible(928, 4))
+        {
+            Rs2Widget.clickWidget(928, 4);
+            Rs2Random.waitEx(1200, 300);
+            return;
+        }
+
+        if (!Rs2Widget.isWidgetVisible(310, 2))
+        {
+            return;
+        }
+
+        Widget widgetOptions = Rs2Widget.getWidget(310, 2);
+
+        if (widgetOptions == null || widgetOptions.getDynamicChildren() == null)
+        {
+            return;
+        }
+
+        for (Widget dynamicWidgetOption : widgetOptions.getDynamicChildren())
+        {
+            String[] actionsText = dynamicWidgetOption.getActions();
+
+            if (actionsText != null
+                    && Arrays.stream(actionsText).anyMatch(a -> a.equalsIgnoreCase("close")))
+            {
+                Rs2Widget.clickWidget(dynamicWidgetOption);
+                Rs2Random.waitEx(1200, 300);
+                return;
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Area / world helpers
+    // -------------------------------------------------------------------------
+
+    private boolean walkToArea(WorldArea area)
+    {
+        return walkToArea(area, randomPoint(area));
+    }
+
+    private boolean walkToArea(WorldArea area, WorldPoint target)
+    {
+        WorldPoint location = Rs2Player.getWorldLocation();
+
+        if (location != null && area.contains(location))
+        {
+            KspWalkerGuard.clearActiveWalker("ksp_account_builder_tutorial_reached_area");
+            return true;
+        }
+
+        Rs2Walker.walkTo(target, 3);
+        Rs2Player.waitForWalking();
+        return false;
     }
 
     private WorldPoint randomPoint(WorldArea area)
@@ -1167,12 +1629,22 @@ public class TutorialIslandScript extends Script
         return new WorldPoint(x, y, area.getPlane());
     }
 
+    // -------------------------------------------------------------------------
+    // Misc helpers
+    // -------------------------------------------------------------------------
+
     private String generateDisplayName()
     {
-        String prefix = NAME_PREFIXES[ThreadLocalRandom.current().nextInt(NAME_PREFIXES.length)];
-        String suffix = NAME_SUFFIXES[ThreadLocalRandom.current().nextInt(NAME_SUFFIXES.length)];
-        int number = ThreadLocalRandom.current().nextInt(10, 999);
-        return prefix + suffix + number;
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        String name = NAME_PREFIXES[random.nextInt(NAME_PREFIXES.length)]
+                + NAME_SUFFIXES[random.nextInt(NAME_SUFFIXES.length)];
+
+        if (name.length() <= 12)
+        {
+            return name;
+        }
+
+        return name.substring(0, 12);
     }
 
     private int randomDelay(int min, int max)
@@ -1189,7 +1661,7 @@ public class TutorialIslandScript extends Script
 
         try
         {
-            Microbot.log("[Tutorial Island] " + String.format(message, args));
+            Microbot.log("[TutIsland] " + String.format(message, args));
         }
         catch (Exception ignored)
         {
@@ -1199,79 +1671,50 @@ public class TutorialIslandScript extends Script
     private void configureAntiban()
     {
         Rs2Antiban.resetAntibanSettings();
-
-        Rs2Antiban.antibanSetupTemplates.applyUniversalAntibanSetup();
-
-        for (PlayStyle playStyle : PlayStyle.values())
-        {
-            playStyle.resetPlayStyle();
-        }
-
         Rs2AntibanSettings.naturalMouse = true;
-        Rs2AntibanSettings.antibanEnabled = true;
-        Rs2AntibanSettings.universalAntiban = true;
-        Rs2AntibanSettings.nonLinearIntervals = false;
-        Rs2AntibanSettings.actionCooldownChance = 0.20;
+        Rs2AntibanSettings.moveMouseRandomly = true;
+        Rs2AntibanSettings.simulateMistakes = true;
     }
 
     @Override
     public void shutdown()
     {
         debugEnabled = false;
-        Rs2Antiban.resetAntibanSettings();
         super.shutdown();
+        Rs2Antiban.resetAntibanSettings();
     }
 
-    public String getLastGeneratedName()
-    {
-        return lastGeneratedName;
-    }
+    // -------------------------------------------------------------------------
+    // Public accessors (used by overlay)
+    // -------------------------------------------------------------------------
 
-    public boolean isPlayerInStartArea()
-    {
-        return isInStartArea();
-    }
-
-    public boolean isNameCreationOpen()
-    {
-        return isDisplayNameWidgetOpen();
-    }
-
-    public boolean isCharacterCreationOpen()
-    {
-        return isCharacterCreationWidgetOpen();
-    }
-
-    public String getLastCharacterAction()
-    {
-        return lastCharacterAction;
-    }
-
-    public boolean isExperiencePromptVisible()
-    {
-        return isExperiencePromptOpen();
-    }
-
-    public String getLastExperienceSelection()
-    {
-        return lastExperienceSelection;
-    }
+    public String getLastGeneratedName()     { return lastGeneratedName; }
+    public boolean isPlayerInStartArea()     { return isInStartArea(); }
+    public boolean isNameCreationOpen()      { return isDisplayNameWidgetOpen(); }
+    public boolean isCharacterCreationOpen() { return isCharacterCreationWidgetOpen(); }
+    public String getLastCharacterAction()   { return lastCharacterAction; }
+    public boolean isExperiencePromptVisible() { return isExperiencePromptOpen(); }
+    public String getLastExperienceSelection() { return lastExperienceSelection; }
+    public String getQueuedAccountName()     { return queuedAccountName; }
 
     public String getStatus()
     {
-        return status + " / " + completionState;
-    }
+        if (completionLogoutRequested)
+        {
+            return completionState;
+        }
 
-    public String getQueuedAccountName()
-    {
-        return queuedAccountName;
+        return status == null ? "Unknown" : status.name();
     }
 
     public int getRemainingQueuedAccounts()
     {
-        int remaining = parseAccountQueue().size() - accountQueueIndex;
-        return Math.max(remaining, 0);
+        return Math.max(0, parseAccountQueue().size() - accountQueueIndex);
     }
+
+    // -------------------------------------------------------------------------
+    // Inner types
+    // -------------------------------------------------------------------------
 
     private static final class AccountQueueEntry
     {

@@ -52,6 +52,7 @@ public class MeleeScript
     private static final int LOOP_DELAY_MS = 600;
     private static final int WEB_WALK_COOLDOWN_MS = 3000;
     private static final int TARGET_FOOD_COUNT = Buy.MELEE_TARGET_FOOD_COUNT;
+    private static final int CHICKEN_TARGET_COMBAT_STAT_LEVEL = 15;
     private static final int LOOT_RADIUS = 12;
     private String status = "Idle";
     private CombatState state = CombatState.PREPARING;
@@ -158,8 +159,10 @@ public class MeleeScript
         int attackLevel = this.getSkillLevel(Skill.ATTACK);
         int strengthLevel = this.getSkillLevel(Skill.STRENGTH);
         int defenceLevel = this.getSkillLevel(Skill.DEFENCE);
-        if (attackLevel < 20 || strengthLevel < 20 || defenceLevel < 20) {
-            return new TrainingStage(CombatAreas.COWPEN, NPC.COW, NPC.COW_CALF, (String[])Arrays.stream(CowLoot.values()).map(CowLoot::getDisplayName).toArray(String[]::new));
+        if (attackLevel < CHICKEN_TARGET_COMBAT_STAT_LEVEL
+                || strengthLevel < CHICKEN_TARGET_COMBAT_STAT_LEVEL
+                || defenceLevel < CHICKEN_TARGET_COMBAT_STAT_LEVEL) {
+            return new TrainingStage(CombatAreas.CHICKENS, NPC.CHICKEN, null, (String[])Arrays.stream(CowLoot.values()).map(CowLoot::getDisplayName).toArray(String[]::new));
         }
         if (attackLevel < 30 || strengthLevel < 30 || defenceLevel < 30) {
             return new TrainingStage(CombatAreas.AL_KHARID_WARRIOR, NPC.AL_KHARID_WARRIOR, null, (String[])Arrays.stream(WarriorLoot.values()).map(WarriorLoot::getDisplayName).toArray(String[]::new));
@@ -507,6 +510,12 @@ public class MeleeScript
     private GearPlan buildGearPlan() {
         int attackLevel = this.getSkillLevel(Skill.ATTACK);
         int defenceLevel = this.getSkillLevel(Skill.DEFENCE);
+        if (attackLevel < CHICKEN_TARGET_COMBAT_STAT_LEVEL
+                || this.getSkillLevel(Skill.STRENGTH) < CHICKEN_TARGET_COMBAT_STAT_LEVEL
+                || defenceLevel < CHICKEN_TARGET_COMBAT_STAT_LEVEL) {
+            return new GearPlan(Arrays.asList("Bronze sword", "Wooden shield"));
+        }
+
         Buy.MeleeGearPlan buyPlan = Buy.buildMeleeGearPlan(
                 attackLevel,
                 defenceLevel,
@@ -523,6 +532,11 @@ public class MeleeScript
     }
 
     private boolean hasCurrentTaskWeaponEquippedOrInInventory() {
+        TrainingStage stage = this.resolveTrainingStage();
+        if (stage.primaryNpc == NPC.CHICKEN) {
+            return this.hasWeaponEquippedOrInInventory("Bronze sword");
+        }
+
         return this.getBestOwnedWeaponUpToCurrentLevel() != null;
     }
 

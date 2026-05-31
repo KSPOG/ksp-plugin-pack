@@ -6,6 +6,7 @@ package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.co
 public enum NPC {
     COW("Cow"),
     COW_CALF("Cow calf"),
+    CHICKEN("Chicken"),
     AL_KHARID_WARRIOR("Al Kharid warrior"),
     HILL_GIANT("Hill Giant"),
     MOSS_GIANT("Moss Giant");
@@ -20,4 +21,3 @@ public enum NPC {
         this.displayName = displayName;
     }
 }
-

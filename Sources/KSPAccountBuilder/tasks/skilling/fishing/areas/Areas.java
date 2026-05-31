@@ -9,18 +9,18 @@ public enum Areas
 {
     SHRIMP_ANCHOVIES(
             "Shrimp & Anchovies",
-            new WorldPoint(3240, 3156, 0),
-            new WorldPoint(3247, 3142, 0)
+            new WorldPoint(3233, 3164, 0),
+            new WorldPoint(3250, 3137, 0)
     ),
     SARDINE_HERRING(
             "Sardine & Herring",
-            new WorldPoint(3088, 3224, 0),
-            new WorldPoint(3081, 3234, 0)
+            new WorldPoint(3233, 3164, 0),
+            new WorldPoint(3250, 3137, 0)
     ),
     TROUT_SALMON(
             "Trout & Salmon",
-            new WorldPoint(3110, 3436, 0),
-            new WorldPoint(3102, 3422, 0)
+            new WorldPoint(3103, 3420, 0),
+            new WorldPoint(3113, 3436, 0)
     ),
     KARAMJA(
             "Karamja",

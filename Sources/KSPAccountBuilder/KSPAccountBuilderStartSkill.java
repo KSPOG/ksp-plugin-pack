@@ -1,6 +1,6 @@
-package net.runelite.client.plugins.microbot.KSPAccountBuilder;
+package net.runelite.client.plugins.microbot.kspaccountbuilder;
 
-public enum KSPAccountBuilderStartSkill {
+public enum KspAccountBuilderStartSkill {
     MINING,
     WOODCUTTING
 }

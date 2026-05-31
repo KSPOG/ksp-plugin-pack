@@ -337,7 +337,7 @@ public class FireMakingScript extends Script
             return;
         }
 
-        Rs2Walker.clearWalkingRoute("ksp_account_builder_firemaking_reached_area");
+        KspWalkerGuard.clearActiveWalker("ksp_account_builder_firemaking_reached_area");
         KspWalkerGuard.clear("Firemaking:target-area");
         walkingToTargetArea = false;
     }

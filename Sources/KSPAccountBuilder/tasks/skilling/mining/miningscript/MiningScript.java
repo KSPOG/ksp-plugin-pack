@@ -410,7 +410,7 @@ public class MiningScript extends Script
             return;
         }
 
-        Rs2Walker.clearWalkingRoute("ksp_account_builder_mining_reached_area");
+        KspWalkerGuard.clearActiveWalker("ksp_account_builder_mining_reached_area");
         KspWalkerGuard.clear("Mining:target-area");
         walkingToTargetArea = false;
     }

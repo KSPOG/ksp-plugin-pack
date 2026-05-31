@@ -327,7 +327,7 @@ extends Script {
                 || this.isSameDestination(walkerTarget, this.lastWalkTarget, 2);
 
         if (shouldClearWalkerRoute) {
-            Rs2Walker.clearWalkingRoute("ksp_account_builder_smithing_reached_area");
+            KspWalkerGuard.clearActiveWalker("ksp_account_builder_smithing_reached_area");
 
             this.debug("Cleared smithing target-area walk | player={} area={} oldWalkerTarget={} lastWalkTarget={} walkingToTargetArea={}",
                     playerLocation,
@@ -611,4 +611,3 @@ extends Script {
         return this.targetRecipe;
     }
 }
-

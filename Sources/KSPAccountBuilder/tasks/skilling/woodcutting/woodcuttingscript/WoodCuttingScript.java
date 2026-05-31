@@ -360,7 +360,7 @@ public class WoodCuttingScript extends Script {
         WorldPoint walkerTarget = Rs2Walker.getCurrentTarget();
 
         if (walkerTarget != null || this.walkingToTargetArea) {
-            Rs2Walker.clearWalkingRoute("ksp_account_builder_woodcutting_already_in_area");
+            KspWalkerGuard.clearActiveWalker("ksp_account_builder_woodcutting_already_in_area");
             KspWalkerGuard.clear("Woodcutting:target-area");
 
             this.debug("Cleared woodcutting walker route because player is already inside task area | player={} area={} oldWalkerTarget={}",

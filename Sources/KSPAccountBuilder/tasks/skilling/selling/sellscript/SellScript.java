@@ -38,6 +38,8 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import javax.inject.Singleton;
+import net.runelite.api.Quest;
+import net.runelite.api.QuestState;
 import net.runelite.api.Skill;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.widgets.Widget;
@@ -46,6 +48,8 @@ import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.questing.cooksassistant.reqs.Items;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.questing.goblindip.reqs.GobReqs;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.buyscript.Buy;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.gearea.GEArea;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.sell.SellList;
@@ -233,10 +237,21 @@ extends Script {
         for (SellList sellList : SellList.values()) {
             if (!this.shouldSellEntry(sellList)) continue;
             if (Rs2Inventory.isFull()) break;
-            if (Rs2Bank.count((String)sellList.getDisplayName()) <= 0 || this.isBlockedSellItem(sellList.getDisplayName())) continue;
-            Rs2Bank.withdrawAll((String)sellList.getDisplayName(), (boolean)true);
+            if (this.isBlockedSellItem(sellList.getDisplayName())) continue;
+            int quantityToSell = this.getSellableBankQuantity(sellList.getDisplayName());
+            if (quantityToSell <= 0) continue;
+            if (quantityToSell >= Rs2Bank.count(sellList.getDisplayName())) {
+                Rs2Bank.withdrawAll((String)sellList.getDisplayName(), (boolean)true);
+            } else {
+                Rs2Bank.withdrawX(sellList.getDisplayName(), quantityToSell);
+            }
             boolean withdrew = SellScript.sleepUntil(() -> Rs2Inventory.hasItem((String)sellList.getDisplayName(), (boolean)true), (int)3000);
-            this.debug("Withdraw sell item | item={} withdrew={} invFull={}", sellList.getDisplayName(), withdrew, Rs2Inventory.isFull());
+            this.debug("Withdraw sell item | item={} qty={} reservedForQuests={} withdrew={} invFull={}",
+                    sellList.getDisplayName(),
+                    quantityToSell,
+                    this.getReservedQuestRequirementQuantity(sellList.getDisplayName()),
+                    withdrew,
+                    Rs2Inventory.isFull());
             withdrewAny = withdrewAny || withdrew;
         }
         withdrewAny = this.withdrawOutdatedToolsAsNotes() || withdrewAny;
@@ -312,7 +327,48 @@ extends Script {
         if (sellList == SellList.OAK_LOGS) {
             return firemakingLevel >= 30;
         }
+        if (sellList == SellList.SMALL_FISHING_NET
+                || sellList == SellList.FISHING_ROD
+                || sellList == SellList.FISHING_BAIT) {
+            return Microbot.getClient().getRealSkillLevel(Skill.FISHING) >= 20;
+        }
         return true;
+    }
+
+    private int getSellableBankQuantity(String itemName) {
+        int bankQuantity = Math.max(0, Rs2Bank.count(itemName));
+        return Math.max(0, bankQuantity - this.getReservedQuestRequirementQuantity(itemName));
+    }
+
+    private int getSellableInventoryQuantity(String itemName, int inventoryQuantity) {
+        return Math.max(0, inventoryQuantity - this.getReservedQuestRequirementQuantity(itemName));
+    }
+
+    private int getReservedQuestRequirementQuantity(String itemName) {
+        if (itemName == null) {
+            return 0;
+        }
+
+        int reservedQuantity = 0;
+        if (this.isQuestIncomplete(Quest.COOKS_ASSISTANT)) {
+            for (Items item : Items.values()) {
+                if (item.getDisplayName().equalsIgnoreCase(itemName)) {
+                    reservedQuantity += 1;
+                }
+            }
+        }
+        if (this.isQuestIncomplete(Quest.GOBLIN_DIPLOMACY)) {
+            for (GobReqs item : GobReqs.values()) {
+                if (item.getDisplayName().equalsIgnoreCase(itemName)) {
+                    reservedQuantity += item.getQuantity();
+                }
+            }
+        }
+        return reservedQuantity;
+    }
+
+    private boolean isQuestIncomplete(Quest quest) {
+        return Rs2Player.getQuestState(quest) != QuestState.FINISHED;
     }
 
     private boolean hasSellableInventoryItems() {
@@ -323,7 +379,7 @@ extends Script {
         for (SellList sellList : SellList.values()) {
             if (!this.shouldSellEntry(sellList)
                     || this.isBlockedSellItem(sellList.getDisplayName())
-                    || Rs2Bank.count((String)sellList.getDisplayName()) <= 0) continue;
+                    || this.getSellableBankQuantity(sellList.getDisplayName()) <= 0) continue;
             return true;
         }
         return this.hasOutdatedToolInBank();
@@ -334,7 +390,11 @@ extends Script {
         String desiredPickaxe = this.resolveDesiredPickaxeName();
         String desiredAxe = this.resolveDesiredAxeName();
         for (Rs2ItemModel item : Rs2Inventory.all()) {
-            if (item == null || item.getName() == null || this.isBlockedSellItem(item.getName()) || !sellNames.stream().anyMatch(name -> name.equalsIgnoreCase(item.getName())) && !this.isOutdatedToolName(item.getName(), desiredPickaxe, desiredAxe)) continue;
+            if (item == null
+                    || item.getName() == null
+                    || this.isBlockedSellItem(item.getName())
+                    || this.getSellableInventoryQuantity(item.getName(), item.getQuantity()) <= 0
+                    || !sellNames.stream().anyMatch(name -> name.equalsIgnoreCase(item.getName())) && !this.isOutdatedToolName(item.getName(), desiredPickaxe, desiredAxe)) continue;
             return item;
         }
         return null;
@@ -572,15 +632,20 @@ extends Script {
         if (item == null || System.currentTimeMillis() - this.lastActionAtMs < 1200L) {
             return false;
         }
+        int quantityToSell = this.getSellableInventoryQuantity(item.getName(), item.getQuantity());
+        if (quantityToSell <= 0) {
+            return false;
+        }
         Microbot.status = "Selling " + item.getName();
         this.waitForGrandExchangeOfferInput();
-        if (offered = Rs2GrandExchange.processOffer((GrandExchangeRequest)(request = GrandExchangeRequest.builder().action(GrandExchangeAction.SELL).itemName(item.getName()).quantity(item.getQuantity()).percent(-10).closeAfterCompletion(false).build()))) {
+        if (offered = Rs2GrandExchange.processOffer((GrandExchangeRequest)(request = GrandExchangeRequest.builder().action(GrandExchangeAction.SELL).itemName(item.getName()).quantity(quantityToSell).percent(-10).closeAfterCompletion(false).build()))) {
             this.lastActionAtMs = System.currentTimeMillis();
-            SellScript.sleepUntil(() -> !Rs2Inventory.hasItem((String)item.getName(), (boolean)true), (int)5000);
+            SellScript.sleepUntil(() -> this.getSellableInventoryQuantity(item.getName(), Rs2Inventory.itemQuantity(item.getName())) <= 0, (int)5000);
         }
-        this.debug("GE sell offer | item={} qty={} percent=-10 offered={} slots={} offerScreen={}",
+        this.debug("GE sell offer | item={} qty={} reservedForQuests={} percent=-10 offered={} slots={} offerScreen={}",
                 item.getName(),
-                item.getQuantity(),
+                quantityToSell,
+                this.getReservedQuestRequirementQuantity(item.getName()),
                 offered,
                 Rs2GrandExchange.isOpen() ? Rs2GrandExchange.getAvailableSlotsCount() : -1,
                 Rs2GrandExchange.isOfferScreenOpen());
@@ -635,4 +700,3 @@ extends Script {
         return this.targetArea;
     }
 }
-

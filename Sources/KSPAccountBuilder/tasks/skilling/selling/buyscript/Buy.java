@@ -45,6 +45,15 @@ public final class Buy
     public static final String FLY_FISHING_ROD_NAME = "Fly fishing rod";
     public static final String HARPOON_NAME = "Harpoon";
     public static final String LOBSTER_POT_NAME = "Lobster pot";
+    public static final String LEATHER_NAME = "Leather";
+    public static final String THREAD_NAME = "Thread";
+    public static final String NEEDLE_NAME = "Needle";
+    public static final String GOLD_BAR_NAME = "Gold bar";
+    public static final String RING_MOULD_NAME = "Ring mould";
+    public static final String NECKLACE_MOULD_NAME = "Necklace mould";
+    public static final int TARGET_CRAFTING_LEVEL = 5;
+    public static final int TARGET_CRAFTING_XP = 388;
+    public static final double LEATHER_GLOVES_CRAFTING_XP = 13.75D;
 
     public static final int MELEE_TARGET_FOOD_COUNT = 5;
     public static final int MELEE_FOOD_PURCHASE_QUANTITY = 20;
@@ -106,18 +115,53 @@ public final class Buy
                 || !hasHammerAnywhere()
                 || !hasTinderboxAnywhere()
                 || hasFishingBuyRequirementMissingInBank()
+                || isCraftingBuyMissingInBank()
+                || isJewelleryBuyMissingInBank()
                 || isSmithingOreBuyMissingAnywhere();
     }
 
     public static boolean hasFishingBuyRequirementMissingInBank()
     {
-        return Rs2Bank.count(FISHING_BAIT_NAME) <= 0
+        int fishingLevel = Microbot.getClient().getRealSkillLevel(Skill.FISHING);
+        boolean needsBasicBaitFishing = fishingLevel < 20;
+
+        return (needsBasicBaitFishing && Rs2Bank.count(FISHING_BAIT_NAME) <= 0)
                 || Rs2Bank.count(FEATHER_NAME) <= 0
-                || Rs2Bank.count(SMALL_FISHING_NET_NAME) <= 0
-                || Rs2Bank.count(FISHING_ROD_NAME) <= 0
+                || (needsBasicBaitFishing && Rs2Bank.count(SMALL_FISHING_NET_NAME) <= 0)
+                || (needsBasicBaitFishing && Rs2Bank.count(FISHING_ROD_NAME) <= 0)
                 || Rs2Bank.count(FLY_FISHING_ROD_NAME) <= 0
                 || Rs2Bank.count(HARPOON_NAME) <= 0
                 || Rs2Bank.count(LOBSTER_POT_NAME) <= 0;
+    }
+
+    public static boolean isCraftingBuyMissingInBank()
+    {
+        int craftingLevel = Microbot.getClient().getRealSkillLevel(Skill.CRAFTING);
+        int craftingXp = Microbot.getClient().getSkillExperience(Skill.CRAFTING);
+        int leatherNeeded = getRequiredLeatherGlovesForCraftingTarget(craftingLevel, craftingXp);
+
+        return leatherNeeded > 0
+                && (Rs2Bank.count(LEATHER_NAME) < leatherNeeded
+                || Rs2Bank.count(THREAD_NAME) <= 0
+                || Rs2Bank.count(NEEDLE_NAME) <= 0);
+    }
+
+    public static boolean isJewelleryBuyMissingInBank()
+    {
+        return Rs2Bank.count(GOLD_BAR_NAME) <= 0
+                || Rs2Bank.count(RING_MOULD_NAME) <= 0
+                || Rs2Bank.count(NECKLACE_MOULD_NAME) <= 0;
+    }
+
+    public static int getRequiredLeatherGlovesForCraftingTarget(int craftingLevel, int craftingXp)
+    {
+        if (craftingLevel >= TARGET_CRAFTING_LEVEL || craftingXp >= TARGET_CRAFTING_XP)
+        {
+            return 0;
+        }
+
+        int xpRemaining = TARGET_CRAFTING_XP - craftingXp;
+        return (int) Math.ceil(xpRemaining / LEATHER_GLOVES_CRAFTING_XP);
     }
 
     public static boolean isSmithingOreBuyMissingAnywhere()

@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import javax.inject.Singleton;
 import net.runelite.http.api.item.ItemPrice;
@@ -68,6 +69,18 @@ public class BuyScript extends Script {
     private static final String FLY_FISHING_ROD_NAME = Buy.FLY_FISHING_ROD_NAME;
     private static final String HARPOON_NAME = Buy.HARPOON_NAME;
     private static final String LOBSTER_POT_NAME = Buy.LOBSTER_POT_NAME;
+    private static final String LEATHER_NAME = Buy.LEATHER_NAME;
+    private static final String THREAD_NAME = Buy.THREAD_NAME;
+    private static final String NEEDLE_NAME = Buy.NEEDLE_NAME;
+    private static final String GOLD_BAR_NAME = Buy.GOLD_BAR_NAME;
+    private static final String RING_MOULD_NAME = Buy.RING_MOULD_NAME;
+    private static final String NECKLACE_MOULD_NAME = Buy.NECKLACE_MOULD_NAME;
+    private static final String BRONZE_SWORD_NAME = "Bronze sword";
+    private static final String WOODEN_SHIELD_NAME = "Wooden shield";
+    private static final String SHRIMP_NAME = "Shrimp";
+    private static final int MELEE_SHRIMP_BANK_QUANTITY = 5;
+    private static final int MIN_GOLD_BAR_BUY_QUANTITY = 50;
+    private static final int MAX_GOLD_BAR_BUY_QUANTITY = 100;
 
     private GEArea targetArea = GEArea.GRAND_EXCHANGE;
     private boolean debugLogging;
@@ -87,6 +100,17 @@ public class BuyScript extends Script {
     private boolean bankHasLobsterPot;
     private int bankFishingBaitCount;
     private int bankFeatherCount;
+    private int bankLeatherCount;
+    private int bankThreadCount;
+    private boolean bankHasNeedle;
+    private int leatherNeeded;
+    private int bankGoldBarCount;
+    private boolean bankHasRingMould;
+    private boolean bankHasNecklaceMould;
+    private int goldBarsToBuy;
+    private boolean bankHasBronzeSword;
+    private boolean bankHasWoodenShield;
+    private int bankShrimpCount;
 
     private String lastDesiredPickaxe;
     private String lastDesiredAxe;
@@ -388,6 +412,15 @@ public class BuyScript extends Script {
 
         this.addFishingSupplyToBudgetIfMissing(budget, FISHING_BAIT_NAME);
         this.addFishingSupplyToBudgetIfMissing(budget, FEATHER_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, LEATHER_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, THREAD_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, NEEDLE_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, GOLD_BAR_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, RING_MOULD_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, NECKLACE_MOULD_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, BRONZE_SWORD_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, WOODEN_SHIELD_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, SHRIMP_NAME);
         this.addOreToBudgetIfMissing(budget, COPPER_ORE_NAME);
         this.addOreToBudgetIfMissing(budget, TIN_ORE_NAME);
 
@@ -395,6 +428,10 @@ public class BuyScript extends Script {
     }
 
     private void addToolToBudgetIfMissing(BuyBudget budget, String itemName) {
+        if (!this.shouldBuyFishingTool(itemName)) {
+            return;
+        }
+
         if (itemName == null || this.hasToolAnywhere(itemName) || this.isMissingToolBuyPending(itemName)) {
             return;
         }
@@ -446,6 +483,15 @@ public class BuyScript extends Script {
         this.bankHasFlyFishingRod = Rs2Bank.count(FLY_FISHING_ROD_NAME) > 0;
         this.bankHasHarpoon = Rs2Bank.count(HARPOON_NAME) > 0;
         this.bankHasLobsterPot = Rs2Bank.count(LOBSTER_POT_NAME) > 0;
+        this.bankLeatherCount = Math.max(0, Rs2Bank.count(LEATHER_NAME));
+        this.bankThreadCount = Math.max(0, Rs2Bank.count(THREAD_NAME));
+        this.bankHasNeedle = Rs2Bank.count(NEEDLE_NAME) > 0;
+        this.bankGoldBarCount = Math.max(0, Rs2Bank.count(GOLD_BAR_NAME));
+        this.bankHasRingMould = Rs2Bank.count(RING_MOULD_NAME) > 0;
+        this.bankHasNecklaceMould = Rs2Bank.count(NECKLACE_MOULD_NAME) > 0;
+        this.bankHasBronzeSword = Rs2Bank.count(BRONZE_SWORD_NAME) > 0;
+        this.bankHasWoodenShield = Rs2Bank.count(WOODEN_SHIELD_NAME) > 0;
+        this.bankShrimpCount = Math.max(0, Rs2Bank.count(SHRIMP_NAME));
         this.refreshCachedBankOreCounts();
         this.bankToolsAudited = true;
     }
@@ -531,6 +577,7 @@ public class BuyScript extends Script {
         }
 
         this.calculateSmithingOreNeeds();
+        this.calculateCraftingNeeds();
 
         this.debug(
                 "Tool/Ore/Fishing audit | hammerInBank={} tinderboxInBank={} baitBank={} feathersBank={} netInBank={} rodInBank={} flyRodInBank={} barsNeeded={} copperNeeded={} tinNeeded={} pendingTools={} pendingSupply={} pendingOres={}",
@@ -593,6 +640,16 @@ public class BuyScript extends Script {
         this.bankHasLobsterPot = false;
         this.bankFishingBaitCount = 0;
         this.bankFeatherCount = 0;
+        this.bankLeatherCount = 0;
+        this.bankThreadCount = 0;
+        this.bankHasNeedle = false;
+        this.bankGoldBarCount = 0;
+        this.bankHasRingMould = false;
+        this.bankHasNecklaceMould = false;
+        this.goldBarsToBuy = 0;
+        this.bankHasBronzeSword = false;
+        this.bankHasWoodenShield = false;
+        this.bankShrimpCount = 0;
         this.bankHasSmallFishingNet = false;
         this.bankHasFishingRod = false;
         this.bankHasFlyFishingRod = false;
@@ -602,6 +659,7 @@ public class BuyScript extends Script {
         this.bankFeatherCount = 0;
 
         this.requiredBronzeBars = 0;
+        this.leatherNeeded = 0;
         this.copperOreNeeded = 0;
         this.tinOreNeeded = 0;
         this.bankCopperOreCount = 0;
@@ -710,11 +768,14 @@ public class BuyScript extends Script {
     private boolean hasFishingBuyRequirementMissing() {
         return this.getFishingSupplyQuantityToBuy(FISHING_BAIT_NAME) > 0
                 || this.getFishingSupplyQuantityToBuy(FEATHER_NAME) > 0
-                || !this.hasFishingToolInBank(SMALL_FISHING_NET_NAME)
-                || !this.hasFishingToolInBank(FISHING_ROD_NAME)
+                || (this.shouldKeepBasicFishingKit() && !this.hasFishingToolInBank(SMALL_FISHING_NET_NAME))
+                || (this.shouldKeepBasicFishingKit() && !this.hasFishingToolInBank(FISHING_ROD_NAME))
                 || !this.hasFishingToolInBank(FLY_FISHING_ROD_NAME)
                 || !this.hasFishingToolInBank(HARPOON_NAME)
-                || !this.hasFishingToolInBank(LOBSTER_POT_NAME);
+                || !this.hasFishingToolInBank(LOBSTER_POT_NAME)
+                || this.hasCraftingBuyRequirementMissing()
+                || this.hasJewelleryBuyRequirementMissing()
+                || this.hasChickenMeleeBuyRequirementMissing();
     }
 
     private boolean needsFishingSupplies() {
@@ -759,7 +820,16 @@ public class BuyScript extends Script {
 
     private boolean hasFishingSupplyNeed() {
         return this.getFishingSupplyQuantityToBuy(FISHING_BAIT_NAME) > 0
-                || this.getFishingSupplyQuantityToBuy(FEATHER_NAME) > 0;
+                || this.getFishingSupplyQuantityToBuy(FEATHER_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(LEATHER_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(THREAD_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(NEEDLE_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(GOLD_BAR_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(RING_MOULD_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(NECKLACE_MOULD_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(BRONZE_SWORD_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(WOODEN_SHIELD_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(SHRIMP_NAME) > 0;
     }
 
     private String getNextFishingSupplyToBuy() {
@@ -773,19 +843,116 @@ public class BuyScript extends Script {
             return FEATHER_NAME;
         }
 
+        String[] supplies = {
+                LEATHER_NAME, THREAD_NAME, NEEDLE_NAME, GOLD_BAR_NAME, RING_MOULD_NAME, NECKLACE_MOULD_NAME,
+                BRONZE_SWORD_NAME, WOODEN_SHIELD_NAME, SHRIMP_NAME
+        };
+
+        for (String supply : supplies) {
+            if (this.getFishingSupplyQuantityToBuy(supply) > 0 && !this.isFishingSupplyBuyPending(supply)) {
+                return supply;
+            }
+        }
+
         return null;
     }
 
     private int getFishingSupplyQuantityToBuy(String itemName) {
+        if (itemName == null) {
+            return 0;
+        }
+
         if (FISHING_BAIT_NAME.equalsIgnoreCase(itemName)) {
-            return this.bankFishingBaitCount <= 0 ? FISHING_BAIT_BUY_QUANTITY : 0;
+            return this.shouldKeepBasicFishingKit() && this.bankFishingBaitCount <= 0 ? FISHING_BAIT_BUY_QUANTITY : 0;
         }
 
         if (FEATHER_NAME.equalsIgnoreCase(itemName)) {
             return this.bankFeatherCount <= 0 ? FEATHER_BUY_QUANTITY : 0;
         }
 
+        if (LEATHER_NAME.equalsIgnoreCase(itemName)) {
+            this.calculateCraftingNeeds();
+            return Math.max(0, this.leatherNeeded - this.bankLeatherCount);
+        }
+
+        if (THREAD_NAME.equalsIgnoreCase(itemName)) {
+            this.calculateCraftingNeeds();
+            return this.leatherNeeded > 0 && this.bankThreadCount <= 0 ? 1 : 0;
+        }
+
+        if (NEEDLE_NAME.equalsIgnoreCase(itemName)) {
+            this.calculateCraftingNeeds();
+            return this.leatherNeeded > 0 && !this.bankHasNeedle ? 1 : 0;
+        }
+
+        if (GOLD_BAR_NAME.equalsIgnoreCase(itemName)) {
+            return this.bankGoldBarCount <= 0 ? this.getGoldBarsToBuy() : 0;
+        }
+
+        if (RING_MOULD_NAME.equalsIgnoreCase(itemName)) {
+            return !this.bankHasRingMould ? 1 : 0;
+        }
+
+        if (NECKLACE_MOULD_NAME.equalsIgnoreCase(itemName)) {
+            return !this.bankHasNecklaceMould ? 1 : 0;
+        }
+
+        if (BRONZE_SWORD_NAME.equalsIgnoreCase(itemName)) {
+            return this.shouldUseChickenMeleeKit() && !this.bankHasBronzeSword ? 1 : 0;
+        }
+
+        if (WOODEN_SHIELD_NAME.equalsIgnoreCase(itemName)) {
+            return this.shouldUseChickenMeleeKit() && !this.bankHasWoodenShield ? 1 : 0;
+        }
+
+        if (SHRIMP_NAME.equalsIgnoreCase(itemName)) {
+            return this.shouldUseChickenMeleeKit() && this.bankShrimpCount < MELEE_SHRIMP_BANK_QUANTITY
+                    ? MELEE_SHRIMP_BANK_QUANTITY - this.bankShrimpCount
+                    : 0;
+        }
+
         return 0;
+    }
+
+    private void calculateCraftingNeeds() {
+        int currentCraftingLevel = Microbot.getClient().getRealSkillLevel(Skill.CRAFTING);
+        int currentCraftingXp = Microbot.getClient().getSkillExperience(Skill.CRAFTING);
+        this.leatherNeeded = Buy.getRequiredLeatherGlovesForCraftingTarget(currentCraftingLevel, currentCraftingXp);
+    }
+
+    private boolean hasCraftingBuyRequirementMissing() {
+        this.calculateCraftingNeeds();
+        return this.leatherNeeded > 0
+                && (this.bankLeatherCount < this.leatherNeeded || this.bankThreadCount <= 0 || !this.bankHasNeedle);
+    }
+
+    private boolean hasJewelleryBuyRequirementMissing() {
+        return this.bankGoldBarCount <= 0 || !this.bankHasRingMould || !this.bankHasNecklaceMould;
+    }
+
+    private boolean hasChickenMeleeBuyRequirementMissing() {
+        return this.shouldUseChickenMeleeKit()
+                && (!this.bankHasBronzeSword
+                || !this.bankHasWoodenShield
+                || this.bankShrimpCount < MELEE_SHRIMP_BANK_QUANTITY);
+    }
+
+    private boolean shouldKeepBasicFishingKit() {
+        return Microbot.getClient().getRealSkillLevel(Skill.FISHING) < 20;
+    }
+
+    private boolean shouldUseChickenMeleeKit() {
+        return Microbot.getClient().getRealSkillLevel(Skill.ATTACK) < 15
+                || Microbot.getClient().getRealSkillLevel(Skill.STRENGTH) < 15
+                || Microbot.getClient().getRealSkillLevel(Skill.DEFENCE) < 15;
+    }
+
+    private int getGoldBarsToBuy() {
+        if (this.goldBarsToBuy <= 0) {
+            this.goldBarsToBuy = ThreadLocalRandom.current().nextInt(MIN_GOLD_BAR_BUY_QUANTITY, MAX_GOLD_BAR_BUY_QUANTITY + 1);
+        }
+
+        return this.goldBarsToBuy;
     }
 
     private boolean handlePendingOreBuys() {
@@ -1176,6 +1343,24 @@ public class BuyScript extends Script {
             this.bankFishingBaitCount += quantity;
         } else if (FEATHER_NAME.equalsIgnoreCase(itemName)) {
             this.bankFeatherCount += quantity;
+        } else if (LEATHER_NAME.equalsIgnoreCase(itemName)) {
+            this.bankLeatherCount += quantity;
+        } else if (THREAD_NAME.equalsIgnoreCase(itemName)) {
+            this.bankThreadCount += quantity;
+        } else if (NEEDLE_NAME.equalsIgnoreCase(itemName)) {
+            this.bankHasNeedle = true;
+        } else if (GOLD_BAR_NAME.equalsIgnoreCase(itemName)) {
+            this.bankGoldBarCount += quantity;
+        } else if (RING_MOULD_NAME.equalsIgnoreCase(itemName)) {
+            this.bankHasRingMould = true;
+        } else if (NECKLACE_MOULD_NAME.equalsIgnoreCase(itemName)) {
+            this.bankHasNecklaceMould = true;
+        } else if (BRONZE_SWORD_NAME.equalsIgnoreCase(itemName)) {
+            this.bankHasBronzeSword = true;
+        } else if (WOODEN_SHIELD_NAME.equalsIgnoreCase(itemName)) {
+            this.bankHasWoodenShield = true;
+        } else if (SHRIMP_NAME.equalsIgnoreCase(itemName)) {
+            this.bankShrimpCount += quantity;
         }
 
         this.pendingFishingSupplyBuyQuantities.remove(this.normalizeItemName(itemName));
@@ -1341,7 +1526,16 @@ public class BuyScript extends Script {
     private boolean isExpectedFishingSupply(String itemName) {
         return itemName != null
                 && (itemName.equalsIgnoreCase(FISHING_BAIT_NAME)
-                || itemName.equalsIgnoreCase(FEATHER_NAME));
+                || itemName.equalsIgnoreCase(FEATHER_NAME)
+                || itemName.equalsIgnoreCase(LEATHER_NAME)
+                || itemName.equalsIgnoreCase(THREAD_NAME)
+                || itemName.equalsIgnoreCase(NEEDLE_NAME)
+                || itemName.equalsIgnoreCase(GOLD_BAR_NAME)
+                || itemName.equalsIgnoreCase(RING_MOULD_NAME)
+                || itemName.equalsIgnoreCase(NECKLACE_MOULD_NAME)
+                || itemName.equalsIgnoreCase(BRONZE_SWORD_NAME)
+                || itemName.equalsIgnoreCase(WOODEN_SHIELD_NAME)
+                || itemName.equalsIgnoreCase(SHRIMP_NAME));
     }
 
     private String normalizeItemName(String itemName) {
@@ -1848,11 +2042,15 @@ public class BuyScript extends Script {
             return TINDERBOX_NAME;
         }
 
-        if (!this.hasFishingToolInBank(SMALL_FISHING_NET_NAME) && !this.isMissingToolBuyPending(SMALL_FISHING_NET_NAME)) {
+        if (this.shouldBuyFishingTool(SMALL_FISHING_NET_NAME)
+                && !this.hasFishingToolInBank(SMALL_FISHING_NET_NAME)
+                && !this.isMissingToolBuyPending(SMALL_FISHING_NET_NAME)) {
             return SMALL_FISHING_NET_NAME;
         }
 
-        if (!this.hasFishingToolInBank(FISHING_ROD_NAME) && !this.isMissingToolBuyPending(FISHING_ROD_NAME)) {
+        if (this.shouldBuyFishingTool(FISHING_ROD_NAME)
+                && !this.hasFishingToolInBank(FISHING_ROD_NAME)
+                && !this.isMissingToolBuyPending(FISHING_ROD_NAME)) {
             return FISHING_ROD_NAME;
         }
 
@@ -1892,6 +2090,18 @@ public class BuyScript extends Script {
                 || itemName.equalsIgnoreCase(FLY_FISHING_ROD_NAME)
                 || itemName.equalsIgnoreCase(HARPOON_NAME)
                 || itemName.equalsIgnoreCase(LOBSTER_POT_NAME));
+    }
+
+    private boolean shouldBuyFishingTool(String itemName) {
+        if (itemName == null) {
+            return false;
+        }
+
+        if (SMALL_FISHING_NET_NAME.equalsIgnoreCase(itemName) || FISHING_ROD_NAME.equalsIgnoreCase(itemName)) {
+            return this.shouldKeepBasicFishingKit();
+        }
+
+        return true;
     }
 
     private boolean hasToolAnywhere(String toolName) {
@@ -2166,6 +2376,24 @@ public class BuyScript extends Script {
         this.bankHasDesiredAxe = false;
         this.bankHasHammer = false;
         this.bankHasTinderbox = false;
+        this.bankHasSmallFishingNet = false;
+        this.bankHasFishingRod = false;
+        this.bankHasFlyFishingRod = false;
+        this.bankHasHarpoon = false;
+        this.bankHasLobsterPot = false;
+        this.bankFishingBaitCount = 0;
+        this.bankFeatherCount = 0;
+        this.bankLeatherCount = 0;
+        this.bankThreadCount = 0;
+        this.bankHasNeedle = false;
+        this.leatherNeeded = 0;
+        this.bankGoldBarCount = 0;
+        this.bankHasRingMould = false;
+        this.bankHasNecklaceMould = false;
+        this.goldBarsToBuy = 0;
+        this.bankHasBronzeSword = false;
+        this.bankHasWoodenShield = false;
+        this.bankShrimpCount = 0;
 
         this.lastDesiredPickaxe = null;
         this.lastDesiredAxe = null;
@@ -2177,6 +2405,7 @@ public class BuyScript extends Script {
         this.pendingOreBuyQuantities.clear();
 
         this.requiredBronzeBars = 0;
+        this.leatherNeeded = 0;
         this.copperOreNeeded = 0;
         this.tinOreNeeded = 0;
         this.bankCopperOreCount = 0;

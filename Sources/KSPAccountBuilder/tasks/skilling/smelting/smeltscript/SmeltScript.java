@@ -293,7 +293,7 @@ extends Script {
         if (!this.walkingToTargetArea) {
             return;
         }
-        Rs2Walker.clearWalkingRoute("ksp_account_builder_smelting_reached_area");
+        KspWalkerGuard.clearActiveWalker("ksp_account_builder_smelting_reached_area");
         KspWalkerGuard.clear("Smelting:target-area");
         this.walkingToTargetArea = false;
     }
@@ -479,4 +479,3 @@ extends Script {
         return this.targetBar;
     }
 }
-

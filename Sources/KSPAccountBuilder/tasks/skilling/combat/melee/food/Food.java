@@ -2,6 +2,7 @@ package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.co
 
 public enum Food {
 
+    SHRIMP("Shrimp", 315, 3),
     SARDINE("Sardine", 325, 4),
     HERRING("Herring", 347, 5),
     TROUT("Trout", 333, 7),

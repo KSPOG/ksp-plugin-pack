@@ -12,7 +12,7 @@ import net.runelite.api.coords.WorldArea;
 import net.runelite.api.coords.WorldPoint;
 
 public enum GEArea {
-    GRAND_EXCHANGE("Grand Exchange", new WorldPoint(3161, 3493, 0), new WorldPoint(3167, 3486, 0));
+    GRAND_EXCHANGE("Grand Exchange", new WorldPoint(3159, 3497, 0), new WorldPoint(3171, 3484, 0));
 
     private final String displayName;
     private final WorldPoint southWest;
@@ -53,4 +53,3 @@ public enum GEArea {
         return this.northEast;
     }
 }
-

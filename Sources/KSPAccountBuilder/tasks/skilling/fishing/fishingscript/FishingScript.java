@@ -41,6 +41,7 @@ public class FishingScript extends Script
     private static final int NPC_INTERACTION_COOLDOWN_MS = 2_500;
     private static final int FISHING_SPOT_SEARCH_PADDING_TILES = 8;
     private static final int OUT_OF_AREA_SPOT_FALLBACK_RADIUS = 4;
+    private static final int FISHING_SPOT_INTERACTION_DISTANCE = 8;
     private static final int MIN_KARAMJA_COINS = 60;
     private static final int KARAMJA_COIN_BUFFER = 200;
     private static final String WALK_KEY_TO_FISHING_AREA = "Fishing:target-area";
@@ -283,7 +284,7 @@ public class FishingScript extends Script
         WorldPoint walkerTarget = Rs2Walker.getCurrentTarget();
         if (walkerTarget != null || walkingToTargetArea)
         {
-            Rs2Walker.clearWalkingRoute("ksp_account_builder_fishing_reached_area");
+            KspWalkerGuard.clearActiveWalker("ksp_account_builder_fishing_reached_area");
             debug("Cleared fishing walker route because player is inside task area | player={} area={} oldWalkerTarget={}",
                     playerLocation,
                     targetArea.getDisplayName(),
@@ -503,7 +504,7 @@ public class FishingScript extends Script
                         && (requireInsideArea
                         ? fishingArea.contains(candidate.getWorldLocation())
                         : isNearTargetArea(candidate.getWorldLocation(), OUT_OF_AREA_SPOT_FALLBACK_RADIUS))
-                        && candidate.isReachable())
+                        && isInteractableFishingSpot(candidate))
                 .toListOnClientThread();
 
         return candidates.stream()
@@ -518,6 +519,17 @@ public class FishingScript extends Script
                     return playerLocation.distanceTo(candidateLocation);
                 }))
                 .orElse(null);
+    }
+
+    private boolean isInteractableFishingSpot(Rs2NpcModel candidate)
+    {
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        WorldPoint spotLocation = candidate != null ? candidate.getWorldLocation() : null;
+
+        return playerLocation != null
+                && spotLocation != null
+                && playerLocation.getPlane() == spotLocation.getPlane()
+                && (candidate.isReachable() || playerLocation.distanceTo(spotLocation) <= FISHING_SPOT_INTERACTION_DISTANCE);
     }
 
     private String getAvailableAction(Rs2NpcModel npc, List<String> preferredActions)

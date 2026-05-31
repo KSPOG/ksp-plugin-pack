@@ -2,10 +2,12 @@ package net.runelite.client.plugins.microbot.kspaccountbuilder;
 
 import com.google.inject.Provides;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.microbot.PluginConstants;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.randomevents.KspRandomEventSolver;
 import net.runelite.client.ui.overlay.OverlayManager;
 
 import javax.inject.Inject;
@@ -17,14 +19,14 @@ import javax.inject.Inject;
         authors = {"KSP"},
         version = KspAccountBuilderPlugin.VERSION,
         minClientVersion = "2.0.13",
-        enabledByDefault = PluginConstants.DEFAULT_ENABLED,
-        isExternal = PluginConstants.IS_EXTERNAL
+        enabledByDefault = true,
+        isExternal = true
 )
 @Slf4j
 @SuppressWarnings("unused") // Loaded dynamically by the hub build/plugin discovery process.
 public class KspAccountBuilderPlugin extends Plugin
 {
-    public static final String VERSION = "1.4.32";
+    public static final String VERSION = "1.5.0";
 
     @Inject
     private KspAccountBuilderScript script;
@@ -38,6 +40,8 @@ public class KspAccountBuilderPlugin extends Plugin
     @Inject
     private OverlayManager overlayManager;
 
+    private KspRandomEventSolver randomEventSolver;
+
     @Provides
     KspAccountBuilderConfig provideConfig(ConfigManager configManager)
     {
@@ -49,6 +53,8 @@ public class KspAccountBuilderPlugin extends Plugin
     {
         log.info("Starting KSP Account Builder plugin");
         overlayManager.add(overlay);
+        randomEventSolver = new KspRandomEventSolver();
+        Microbot.getBlockingEventManager().add(randomEventSolver);
         script.run(config);
     }
 
@@ -57,6 +63,11 @@ public class KspAccountBuilderPlugin extends Plugin
     {
         log.info("Stopping KSP Account Builder plugin");
         script.shutdown();
+        if (randomEventSolver != null)
+        {
+            Microbot.getBlockingEventManager().remove(randomEventSolver);
+            randomEventSolver = null;
+        }
         overlayManager.remove(overlay);
     }
 }

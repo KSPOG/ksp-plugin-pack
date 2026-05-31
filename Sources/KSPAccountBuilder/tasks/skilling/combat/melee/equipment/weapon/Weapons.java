@@ -4,6 +4,7 @@
 package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.equipment.weapon;
 
 public enum Weapons {
+    BRONZE_SWORD("Bronze sword", 1),
     BRONZE_SCIMITAR("Bronze scimitar", 1),
     IRON_SCIMITAR("Iron scimitar", 1),
     STEEL_SCIMITAR("Steel scimitar", 5),
@@ -28,4 +29,3 @@ public enum Weapons {
         this.requiredAttackLevel = requiredAttackLevel;
     }
 }
-
