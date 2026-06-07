@@ -43,6 +43,7 @@ import net.runelite.client.plugins.microbot.util.antiban.Rs2Antiban;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2AntibanSettings;
 import net.runelite.client.plugins.microbot.util.antiban.enums.PlayStyle;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
+import net.runelite.client.plugins.microbot.util.bank.enums.BankLocation;
 import net.runelite.client.plugins.microbot.util.camera.Rs2Camera;
 import net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue;
 import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
@@ -98,6 +99,10 @@ public class KspAccountBuilderScript extends Script
     private static final long PLAY_TIME_READ_RETRY_MS = TimeUnit.SECONDS.toMillis(30);
     private static final String BRONZE_SWORD = "Bronze sword";
     private static final String WOODEN_SHIELD = "Wooden shield";
+    private static final int DRAYNOR_CORRIDOR_MIN_X = 3050;
+    private static final int DRAYNOR_CORRIDOR_MAX_X = 3135;
+    private static final int DRAYNOR_CORRIDOR_MIN_Y = 3230;
+    private static final int DRAYNOR_CORRIDOR_MAX_Y = 3400;
 
     @Inject
     private MiningScript miningScript;
@@ -175,6 +180,7 @@ public class KspAccountBuilderScript extends Script
     private String originalWindowTitle = "Microbot";
     private long synchronizedPlayTimeAccountHash;
     private long nextPlayTimeReadAtMillis;
+    private BankLocation taskSwitchBankLocation;
 
     public boolean run(KspAccountBuilderConfig config)
     {
@@ -217,6 +223,7 @@ public class KspAccountBuilderScript extends Script
         lastLoginHandoffLogAt = 0L;
         synchronizedPlayTimeAccountHash = 0L;
         nextPlayTimeReadAtMillis = 0L;
+        taskSwitchBankLocation = null;
         captureOriginalWindowTitle();
 
         startedAtMillis = System.currentTimeMillis();
@@ -1858,7 +1865,12 @@ public class KspAccountBuilderScript extends Script
 
         depositGatheringToolsInInventory();
 
-        return depositInventoryForTaskSwitch();
+        boolean prepared = depositInventoryForTaskSwitch();
+        if (prepared)
+        {
+            taskSwitchBankLocation = null;
+        }
+        return prepared;
     }
 
     private boolean ensureTaskSwitchBankOpen()
@@ -1903,13 +1915,46 @@ public class KspAccountBuilderScript extends Script
     {
         try
         {
-            return Rs2Bank.walkToBankAndUseBank();
+            BankLocation bankLocation = resolveTaskSwitchBankLocation();
+            return bankLocation != null && Rs2Bank.walkToBankAndUseBank(bankLocation);
         }
         catch (RuntimeException ex)
         {
             debug("Task switch bank walk failed | message={}", ex.getMessage());
             return false;
         }
+    }
+
+    private BankLocation resolveTaskSwitchBankLocation()
+    {
+        if (taskSwitchBankLocation != null)
+        {
+            return taskSwitchBankLocation;
+        }
+
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        if (isInDraynorManorCorridor(playerLocation))
+        {
+            taskSwitchBankLocation = BankLocation.DRAYNOR_VILLAGE;
+            debug("Pinned task switch bank to {} in Draynor Manor corridor | player={}",
+                    taskSwitchBankLocation, playerLocation);
+            return taskSwitchBankLocation;
+        }
+
+        taskSwitchBankLocation = Rs2Bank.getNearestBank();
+        debug("Pinned nearest task switch bank | bank={} player={}",
+                taskSwitchBankLocation, playerLocation);
+        return taskSwitchBankLocation;
+    }
+
+    private boolean isInDraynorManorCorridor(WorldPoint location)
+    {
+        return location != null
+                && location.getPlane() == 0
+                && location.getX() >= DRAYNOR_CORRIDOR_MIN_X
+                && location.getX() <= DRAYNOR_CORRIDOR_MAX_X
+                && location.getY() >= DRAYNOR_CORRIDOR_MIN_Y
+                && location.getY() <= DRAYNOR_CORRIDOR_MAX_Y;
     }
 
     private boolean setPostTutorialBankCamera()
@@ -2495,6 +2540,7 @@ public class KspAccountBuilderScript extends Script
         awaitingActivitySwitchTimerStart = false;
         breakLogoutRequested = false;
         postTutorialBankCameraPending = false;
+        taskSwitchBankLocation = null;
         lastBreakLoginAttemptAt = 0L;
         updateWindowTitle();
 
@@ -2599,8 +2645,9 @@ public class KspAccountBuilderScript extends Script
             awaitingActivitySwitchTimerStart = false;
             nextActivitySwitchAtMillis = -1L;
             synchronizedPlayTimeAccountHash = 0L;
-            nextPlayTimeReadAtMillis = 0L;
-            debug("Account changed; stopped task selection until play time is confirmed");
+        nextPlayTimeReadAtMillis = 0L;
+        taskSwitchBankLocation = null;
+        debug("Account changed; stopped task selection until play time is confirmed");
         }
 
         if (!loggedIn)

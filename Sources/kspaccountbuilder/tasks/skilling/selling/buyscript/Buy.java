@@ -51,6 +51,8 @@ public final class Buy
     public static final String GOLD_BAR_NAME = "Gold bar";
     public static final String RING_MOULD_NAME = "Ring mould";
     public static final String NECKLACE_MOULD_NAME = "Necklace mould";
+    public static final String CHISEL_NAME = "Chisel";
+    public static final String TIARA_MOULD_NAME = "Tiara mould";
     public static final int TARGET_CRAFTING_LEVEL = 5;
     public static final int TARGET_CRAFTING_XP = 388;
     public static final double LEATHER_GLOVES_CRAFTING_XP = 13.75D;
@@ -150,7 +152,9 @@ public final class Buy
     {
         return Rs2Bank.count(GOLD_BAR_NAME) <= 0
                 || Rs2Bank.count(RING_MOULD_NAME) <= 0
-                || Rs2Bank.count(NECKLACE_MOULD_NAME) <= 0;
+                || Rs2Bank.count(NECKLACE_MOULD_NAME) <= 0
+                || Rs2Bank.count(CHISEL_NAME) <= 0
+                || Rs2Bank.count(TIARA_MOULD_NAME) <= 0;
     }
 
     public static int getRequiredLeatherGlovesForCraftingTarget(int craftingLevel, int craftingXp)

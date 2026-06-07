@@ -76,6 +76,8 @@ public class BuyScript extends Script {
     private static final String GOLD_BAR_NAME = Buy.GOLD_BAR_NAME;
     private static final String RING_MOULD_NAME = Buy.RING_MOULD_NAME;
     private static final String NECKLACE_MOULD_NAME = Buy.NECKLACE_MOULD_NAME;
+    private static final String CHISEL_NAME = Buy.CHISEL_NAME;
+    private static final String TIARA_MOULD_NAME = Buy.TIARA_MOULD_NAME;
     private static final String BRONZE_SWORD_NAME = "Bronze sword";
     private static final String WOODEN_SHIELD_NAME = "Wooden shield";
     private static final String SHRIMP_NAME = "Shrimp";
@@ -108,6 +110,8 @@ public class BuyScript extends Script {
     private int bankGoldBarCount;
     private boolean bankHasRingMould;
     private boolean bankHasNecklaceMould;
+    private boolean bankHasChisel;
+    private boolean bankHasTiaraMould;
     private int goldBarsToBuy;
     private boolean bankHasBronzeSword;
     private boolean bankHasWoodenShield;
@@ -419,6 +423,8 @@ public class BuyScript extends Script {
         this.addFishingSupplyToBudgetIfMissing(budget, GOLD_BAR_NAME);
         this.addFishingSupplyToBudgetIfMissing(budget, RING_MOULD_NAME);
         this.addFishingSupplyToBudgetIfMissing(budget, NECKLACE_MOULD_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, CHISEL_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, TIARA_MOULD_NAME);
         this.addFishingSupplyToBudgetIfMissing(budget, BRONZE_SWORD_NAME);
         this.addFishingSupplyToBudgetIfMissing(budget, WOODEN_SHIELD_NAME);
         this.addOreToBudgetIfMissing(budget, COPPER_ORE_NAME);
@@ -489,6 +495,8 @@ public class BuyScript extends Script {
         this.bankGoldBarCount = Math.max(0, Rs2Bank.count(GOLD_BAR_NAME));
         this.bankHasRingMould = Rs2Bank.count(RING_MOULD_NAME) > 0;
         this.bankHasNecklaceMould = Rs2Bank.count(NECKLACE_MOULD_NAME) > 0;
+        this.bankHasChisel = Rs2Bank.count(CHISEL_NAME) > 0;
+        this.bankHasTiaraMould = Rs2Bank.count(TIARA_MOULD_NAME) > 0;
         this.bankHasBronzeSword = Rs2Bank.count(BRONZE_SWORD_NAME) > 0;
         this.bankHasWoodenShield = Rs2Bank.count(WOODEN_SHIELD_NAME) > 0;
         this.bankShrimpCount = Math.max(0, Rs2Bank.count(SHRIMP_NAME));
@@ -650,6 +658,8 @@ public class BuyScript extends Script {
         this.bankGoldBarCount = 0;
         this.bankHasRingMould = false;
         this.bankHasNecklaceMould = false;
+        this.bankHasChisel = false;
+        this.bankHasTiaraMould = false;
         this.goldBarsToBuy = 0;
         this.bankHasBronzeSword = false;
         this.bankHasWoodenShield = false;
@@ -831,6 +841,8 @@ public class BuyScript extends Script {
                 || this.getFishingSupplyQuantityToBuy(GOLD_BAR_NAME) > 0
                 || this.getFishingSupplyQuantityToBuy(RING_MOULD_NAME) > 0
                 || this.getFishingSupplyQuantityToBuy(NECKLACE_MOULD_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(CHISEL_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(TIARA_MOULD_NAME) > 0
                 || this.getFishingSupplyQuantityToBuy(BRONZE_SWORD_NAME) > 0
                 || this.getFishingSupplyQuantityToBuy(WOODEN_SHIELD_NAME) > 0;
     }
@@ -848,6 +860,7 @@ public class BuyScript extends Script {
 
         String[] supplies = {
                 LEATHER_NAME, THREAD_NAME, NEEDLE_NAME, GOLD_BAR_NAME, RING_MOULD_NAME, NECKLACE_MOULD_NAME,
+                CHISEL_NAME, TIARA_MOULD_NAME,
                 BRONZE_SWORD_NAME, WOODEN_SHIELD_NAME
         };
 
@@ -900,6 +913,14 @@ public class BuyScript extends Script {
             return !this.bankHasNecklaceMould ? 1 : 0;
         }
 
+        if (CHISEL_NAME.equalsIgnoreCase(itemName)) {
+            return !this.bankHasChisel ? 1 : 0;
+        }
+
+        if (TIARA_MOULD_NAME.equalsIgnoreCase(itemName)) {
+            return !this.bankHasTiaraMould ? 1 : 0;
+        }
+
         if (BRONZE_SWORD_NAME.equalsIgnoreCase(itemName)) {
             return this.shouldUseChickenMeleeKit() && !this.bankHasBronzeSword ? 1 : 0;
         }
@@ -928,7 +949,11 @@ public class BuyScript extends Script {
     }
 
     private boolean hasJewelleryBuyRequirementMissing() {
-        return this.bankGoldBarCount <= 0 || !this.bankHasRingMould || !this.bankHasNecklaceMould;
+        return this.bankGoldBarCount <= 0
+                || !this.bankHasRingMould
+                || !this.bankHasNecklaceMould
+                || !this.bankHasChisel
+                || !this.bankHasTiaraMould;
     }
 
     private boolean hasChickenMeleeBuyRequirementMissing() {
@@ -1355,6 +1380,10 @@ public class BuyScript extends Script {
             this.bankHasRingMould = true;
         } else if (NECKLACE_MOULD_NAME.equalsIgnoreCase(itemName)) {
             this.bankHasNecklaceMould = true;
+        } else if (CHISEL_NAME.equalsIgnoreCase(itemName)) {
+            this.bankHasChisel = true;
+        } else if (TIARA_MOULD_NAME.equalsIgnoreCase(itemName)) {
+            this.bankHasTiaraMould = true;
         } else if (BRONZE_SWORD_NAME.equalsIgnoreCase(itemName)) {
             this.bankHasBronzeSword = true;
         } else if (WOODEN_SHIELD_NAME.equalsIgnoreCase(itemName)) {
@@ -1533,6 +1562,8 @@ public class BuyScript extends Script {
                 || itemName.equalsIgnoreCase(GOLD_BAR_NAME)
                 || itemName.equalsIgnoreCase(RING_MOULD_NAME)
                 || itemName.equalsIgnoreCase(NECKLACE_MOULD_NAME)
+                || itemName.equalsIgnoreCase(CHISEL_NAME)
+                || itemName.equalsIgnoreCase(TIARA_MOULD_NAME)
                 || itemName.equalsIgnoreCase(BRONZE_SWORD_NAME)
                 || itemName.equalsIgnoreCase(WOODEN_SHIELD_NAME)
                 || itemName.equalsIgnoreCase(SHRIMP_NAME));
@@ -2356,6 +2387,8 @@ public class BuyScript extends Script {
         this.bankGoldBarCount = 0;
         this.bankHasRingMould = false;
         this.bankHasNecklaceMould = false;
+        this.bankHasChisel = false;
+        this.bankHasTiaraMould = false;
         this.goldBarsToBuy = 0;
         this.bankHasBronzeSword = false;
         this.bankHasWoodenShield = false;
