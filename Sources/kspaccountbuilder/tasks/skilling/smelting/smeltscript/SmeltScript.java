@@ -29,6 +29,7 @@ import net.runelite.client.plugins.microbot.api.tileobject.models.Rs2TileObjectM
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smelting.barlevel.BarLevels;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smelting.oresreq.ReqOres;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smelting.smeltarea.SmeltArea;
@@ -164,6 +165,9 @@ extends Script {
             return false;
         }
         if (!Rs2Bank.isOpen()) {
+            return false;
+        }
+        if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait()) {
             return false;
         }
         if (!KspBankMode.ensureWithdrawAsItem()) {

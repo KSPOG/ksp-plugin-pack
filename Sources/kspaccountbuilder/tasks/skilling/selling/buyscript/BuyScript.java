@@ -16,8 +16,9 @@ import net.runelite.api.Skill;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
-import net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel;
 import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspGrandExchangeHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.gearea.GEArea;
@@ -420,7 +421,6 @@ public class BuyScript extends Script {
         this.addFishingSupplyToBudgetIfMissing(budget, NECKLACE_MOULD_NAME);
         this.addFishingSupplyToBudgetIfMissing(budget, BRONZE_SWORD_NAME);
         this.addFishingSupplyToBudgetIfMissing(budget, WOODEN_SHIELD_NAME);
-        this.addFishingSupplyToBudgetIfMissing(budget, SHRIMP_NAME);
         this.addOreToBudgetIfMissing(budget, COPPER_ORE_NAME);
         this.addOreToBudgetIfMissing(budget, TIN_ORE_NAME);
 
@@ -569,6 +569,10 @@ public class BuyScript extends Script {
                 Rs2Inventory.itemQuantity(995),
                 Rs2Bank.count(COINS_NAME)
         );
+
+        if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait()) {
+            return;
+        }
 
         if (!Rs2Inventory.isEmpty()) {
             Rs2Bank.depositAll();
@@ -828,8 +832,7 @@ public class BuyScript extends Script {
                 || this.getFishingSupplyQuantityToBuy(RING_MOULD_NAME) > 0
                 || this.getFishingSupplyQuantityToBuy(NECKLACE_MOULD_NAME) > 0
                 || this.getFishingSupplyQuantityToBuy(BRONZE_SWORD_NAME) > 0
-                || this.getFishingSupplyQuantityToBuy(WOODEN_SHIELD_NAME) > 0
-                || this.getFishingSupplyQuantityToBuy(SHRIMP_NAME) > 0;
+                || this.getFishingSupplyQuantityToBuy(WOODEN_SHIELD_NAME) > 0;
     }
 
     private String getNextFishingSupplyToBuy() {
@@ -845,7 +848,7 @@ public class BuyScript extends Script {
 
         String[] supplies = {
                 LEATHER_NAME, THREAD_NAME, NEEDLE_NAME, GOLD_BAR_NAME, RING_MOULD_NAME, NECKLACE_MOULD_NAME,
-                BRONZE_SWORD_NAME, WOODEN_SHIELD_NAME, SHRIMP_NAME
+                BRONZE_SWORD_NAME, WOODEN_SHIELD_NAME
         };
 
         for (String supply : supplies) {
@@ -906,9 +909,7 @@ public class BuyScript extends Script {
         }
 
         if (SHRIMP_NAME.equalsIgnoreCase(itemName)) {
-            return this.shouldUseChickenMeleeKit() && this.bankShrimpCount < MELEE_SHRIMP_BANK_QUANTITY
-                    ? MELEE_SHRIMP_BANK_QUANTITY - this.bankShrimpCount
-                    : 0;
+            return 0;
         }
 
         return 0;
@@ -933,8 +934,7 @@ public class BuyScript extends Script {
     private boolean hasChickenMeleeBuyRequirementMissing() {
         return this.shouldUseChickenMeleeKit()
                 && (!this.bankHasBronzeSword
-                || !this.bankHasWoodenShield
-                || this.bankShrimpCount < MELEE_SHRIMP_BANK_QUANTITY);
+                || !this.bankHasWoodenShield);
     }
 
     private boolean shouldKeepBasicFishingKit() {
@@ -1573,7 +1573,7 @@ public class BuyScript extends Script {
 
         if (Rs2Bank.isOpen()) {
             Microbot.status = "Closing Bank";
-            Rs2Bank.closeBank();
+            KspGrandExchangeHelper.closeBankBeforeExchange();
             BuyScript.sleepUntil(() -> !Rs2Bank.isOpen(), 2000);
             return false;
         }
@@ -1587,13 +1587,13 @@ public class BuyScript extends Script {
                 Rs2GrandExchange.isOpen()
         );
 
-        if (Rs2GrandExchange.openExchange()) {
+        if (KspGrandExchangeHelper.openExchangeDirectly()) {
             BuyScript.sleepUntil(Rs2GrandExchange::isOpen, BANK_WAIT_TIMEOUT_MS);
             return Rs2GrandExchange.isOpen();
         }
 
         if (this.targetArea.toWorldArea().contains(Rs2Player.getWorldLocation())
-                && this.interactGrandExchangeClerk()) {
+                && KspGrandExchangeHelper.interactClerk()) {
             BuyScript.sleepUntil(Rs2GrandExchange::isOpen, BANK_WAIT_TIMEOUT_MS);
 
             if (Rs2GrandExchange.isOpen()) {
@@ -1601,46 +1601,12 @@ public class BuyScript extends Script {
             }
         }
 
-        if (this.interactGrandExchangeClerk()) {
+        if (KspGrandExchangeHelper.interactClerk()) {
             BuyScript.sleepUntil(Rs2GrandExchange::isOpen, BANK_WAIT_TIMEOUT_MS);
             return Rs2GrandExchange.isOpen();
         }
 
         return false;
-    }
-
-    private boolean interactGrandExchangeClerk() {
-        Rs2NpcModel clerk = Microbot.getClientThread().invoke(() -> Microbot.getRs2NpcCache().query()
-                .fromWorldView()
-                .withName("Grand Exchange Clerk")
-                .nearestReachable(15));
-
-        if (clerk == null) {
-            this.debug(
-                    "Grand Exchange clerk not found | player={} area={}",
-                    Rs2Player.getWorldLocation(),
-                    this.targetArea.getDisplayName()
-            );
-            return false;
-        }
-
-        boolean clicked = clerk.click("Exchange");
-
-        if (!clicked) {
-            clicked = clerk.click("Trade");
-        }
-
-        this.debug(
-                "Grand Exchange clerk interaction | clicked={} npc={} id={} loc={} player={} geOpen={}",
-                clicked,
-                clerk.getName(),
-                clerk.getId(),
-                clerk.getWorldLocation(),
-                Rs2Player.getWorldLocation(),
-                Rs2GrandExchange.isOpen()
-        );
-
-        return clicked;
     }
 
     private boolean placeFallbackSellOffer(Rs2ItemModel item) {

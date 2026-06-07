@@ -10,6 +10,8 @@ import net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspGrandExchangeHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.questing.goblindip.reqs.GobReqs;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.gearea.GEArea;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
@@ -361,6 +363,9 @@ public class GobScript extends Script {
         }
 
         status = "Withdrawing coins for Goblin Diplomacy buys";
+        if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait()) {
+            return false;
+        }
         Rs2Bank.withdrawAll(COINS);
         sleepUntil(() -> Rs2Inventory.itemQuantity(COINS_ID) >= Math.min(Integer.MAX_VALUE, budget.estimatedCost), 3_000);
 
@@ -398,32 +403,19 @@ public class GobScript extends Script {
         }
 
         if (Rs2Bank.isOpen()) {
-            Rs2Bank.closeBank();
+            KspGrandExchangeHelper.closeBankBeforeExchange();
             sleepUntil(() -> !Rs2Bank.isOpen(), 2_000);
             return false;
         }
 
         status = "Opening Grand Exchange";
 
-        if (Rs2GrandExchange.openExchange()) {
+        if (KspGrandExchangeHelper.openExchangeDirectly()) {
             sleepUntil(Rs2GrandExchange::isOpen, 3_000);
             return Rs2GrandExchange.isOpen();
         }
 
-        Rs2NpcModel clerk = Microbot.getClientThread().invoke(() -> Microbot.getRs2NpcCache().query()
-                .fromWorldView()
-                .withName("Grand Exchange Clerk")
-                .nearestReachable(15));
-
-        if (clerk == null) {
-            debug("Grand Exchange Clerk not found | player={}", Rs2Player.getWorldLocation());
-            return false;
-        }
-
-        boolean clicked = clerk.click("Exchange");
-        if (!clicked) {
-            clicked = clerk.click("Trade");
-        }
+        boolean clicked = KspGrandExchangeHelper.interactClerk();
 
         if (clicked) {
             sleepUntil(Rs2GrandExchange::isOpen, 3_000);
@@ -776,6 +768,10 @@ public class GobScript extends Script {
 
         if (!KspBankMode.ensureWithdrawAsItem()) {
             debug("Waiting for withdraw-as-item mode before Goblin Diplomacy withdrawals");
+            return;
+        }
+
+        if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait()) {
             return;
         }
 

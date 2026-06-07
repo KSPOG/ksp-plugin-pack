@@ -29,6 +29,7 @@ import net.runelite.client.plugins.microbot.api.tileobject.models.Rs2TileObjectM
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smithing.recipes.SmithRecipe;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smithing.smitharea.SmithArea;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smithing.smithlevels.SmithLevels;
@@ -200,6 +201,9 @@ extends Script {
         String hammerName = SmithTool.HAMMER.getDisplayName();
         String barName = this.getBarName(recipe);
         int hammerItemId = SmithTool.HAMMER.getItemId();
+        if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait()) {
+            return false;
+        }
         if (!KspBankMode.ensureWithdrawAsItem()) {
             this.debug("Waiting for withdraw-as-item mode before preparing smithing inventory");
             return false;

@@ -1,5 +1,11 @@
 package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fishing.fishingscript;
 
+import java.awt.event.KeyEvent;
+import java.util.Comparator;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import javax.inject.Singleton;
 import net.runelite.api.ItemID;
 import net.runelite.api.NPCComposition;
 import net.runelite.api.Skill;
@@ -8,10 +14,12 @@ import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel;
+import net.runelite.client.plugins.microbot.api.tileobject.models.Rs2TileObjectModel;
 import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fishing.areas.Areas;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fishing.helper.KaramjaTravelHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fishing.levelreqfishing.LevelReqs;
@@ -19,17 +27,14 @@ import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fis
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.depositbox.Rs2DepositBox;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
+import net.runelite.client.plugins.microbot.util.keyboard.Rs2Keyboard;
 import net.runelite.client.plugins.microbot.util.misc.Rs2UiHelper;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
 import net.runelite.client.plugins.microbot.util.tabs.Rs2Tab;
 import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
+import net.runelite.client.plugins.microbot.util.widget.Rs2Widget;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import javax.inject.Singleton;
-import java.util.Comparator;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 @Singleton
 public class FishingScript extends Script
@@ -43,14 +48,20 @@ public class FishingScript extends Script
     private static final int OUT_OF_AREA_SPOT_FALLBACK_RADIUS = 4;
     private static final int FISHING_SPOT_INTERACTION_DISTANCE = 8;
     private static final int MIN_KARAMJA_COINS = 60;
-    private static final int KARAMJA_COIN_BUFFER = 200;
+    private static final int KARAMJA_COIN_RESERVE = 2_000;
+    private static final int TROUT_SALMON_FIRE_ID = 4375;
+    private static final int NO_COOKING_BATCH = -1;
     private static final String WALK_KEY_TO_FISHING_AREA = "Fishing:target-area";
 
-    private Areas targetArea = Areas.SHRIMP_ANCHOVIES;
+    private volatile Areas targetArea = Areas.SHRIMP_ANCHOVIES;
     private LevelReqs targetFish = LevelReqs.SHRIMP;
+    private LevelReqs randomLevel50Fish;
     private FishingState state = FishingState.WAITING;
     private boolean debugLogging;
-    private boolean walkingToTargetArea;
+    private volatile boolean walkingToTargetArea;
+    private volatile boolean targetAreaArrivalHandled;
+    private int cookingBatchItemId = NO_COOKING_BATCH;
+    private boolean expectingCookingXpDrop;
     private long lastNpcInteractionAtMs;
     private long lastWebWalkAtMs;
 
@@ -65,7 +76,11 @@ public class FishingScript extends Script
 
         targetArea = area;
         targetFish = LevelReqs.SHRIMP;
+        randomLevel50Fish = null;
         state = FishingState.CHECKING_SUPPLIES;
+        targetAreaArrivalHandled = false;
+        cookingBatchItemId = NO_COOKING_BATCH;
+        expectingCookingXpDrop = false;
 
         mainScheduledFuture = scheduledExecutorService.scheduleWithFixedDelay(() ->
         {
@@ -75,13 +90,14 @@ public class FishingScript extends Script
             }
 
             int fishingLevel = Microbot.getClient().getRealSkillLevel(Skill.FISHING);
-            LevelReqs desiredFish = LevelReqs.bestForFishingLevel(fishingLevel);
+            LevelReqs desiredFish = resolveFishForLevel(fishingLevel);
             Areas desiredArea = resolveTargetArea(desiredFish);
 
             if (desiredFish != targetFish || desiredArea != targetArea)
             {
                 targetFish = desiredFish;
                 targetArea = desiredArea;
+                targetAreaArrivalHandled = false;
                 clearTargetAreaWalkIfNeeded();
                 debug("Switching fishing target to {} in {} for fishing level {}",
                         targetFish.getDisplayName(),
@@ -105,6 +121,12 @@ public class FishingScript extends Script
 
             if (Rs2Inventory.isFull())
             {
+                if (cookTroutOrSalmonBeforeBanking())
+                {
+                    state = FishingState.COOKING;
+                    return;
+                }
+
                 state = FishingState.BANKING;
                 bankFishOnly();
                 return;
@@ -134,6 +156,150 @@ public class FishingScript extends Script
         }, 0L, LOOP_DELAY_MS, TimeUnit.MILLISECONDS);
 
         return true;
+    }
+
+    private LevelReqs resolveFishForLevel(int fishingLevel)
+    {
+        if (fishingLevel < 50)
+        {
+            randomLevel50Fish = null;
+            return LevelReqs.bestForFishingLevel(fishingLevel);
+        }
+
+        if (randomLevel50Fish == null)
+        {
+            List<LevelReqs> options = List.of(
+                    LevelReqs.SALMON,
+                    LevelReqs.SWORDFISH,
+                    LevelReqs.LOBSTER);
+            randomLevel50Fish = options.get(ThreadLocalRandom.current().nextInt(options.size()));
+            debug("Selected level 50 fishing mode | mode={} targetFish={}",
+                    getFishingModeName(randomLevel50Fish),
+                    randomLevel50Fish.getDisplayName());
+        }
+
+        return randomLevel50Fish;
+    }
+
+    private String getFishingModeName(LevelReqs fish)
+    {
+        if (fish == LevelReqs.SALMON)
+        {
+            return "Trout/Salmon";
+        }
+        if (fish == LevelReqs.SWORDFISH)
+        {
+            return "Tuna/Swordfish";
+        }
+        return "Lobster";
+    }
+
+    private boolean cookTroutOrSalmonBeforeBanking()
+    {
+        if (targetArea != Areas.TROUT_SALMON)
+        {
+            resetCookingBatch();
+            return false;
+        }
+
+        if (cookingBatchItemId == NO_COOKING_BATCH)
+        {
+            cookingBatchItemId = selectCookingBatchItem();
+            if (cookingBatchItemId == NO_COOKING_BATCH)
+            {
+                return false;
+            }
+
+            debug("Selected fishing cooking batch | item={} cookingLevel={} rawTrout={} rawSalmon={}",
+                    getCookingBatchName(),
+                    Microbot.getClient().getRealSkillLevel(Skill.COOKING),
+                    Rs2Inventory.count(ItemID.RAW_TROUT),
+                    Rs2Inventory.count(ItemID.RAW_SALMON));
+        }
+
+        if (Rs2Inventory.count(cookingBatchItemId) <= 0)
+        {
+            String completedBatch = getCookingBatchName();
+            cookingBatchItemId = selectCookingBatchItem();
+            expectingCookingXpDrop = false;
+
+            if (cookingBatchItemId == NO_COOKING_BATCH)
+            {
+                debug("Finished fishing cooking batch | item={}; no raw fish remain, continuing to bank",
+                        completedBatch);
+                return false;
+            }
+
+            debug("Finished fishing cooking batch | item={}; continuing with item={}",
+                    completedBatch,
+                    getCookingBatchName());
+        }
+
+        Microbot.status = "Cooking " + getCookingBatchName() + " before banking";
+
+        if (Rs2Player.isMoving() || Rs2Player.isAnimating())
+        {
+            return true;
+        }
+
+        if (expectingCookingXpDrop && Rs2Player.waitForXpDrop(Skill.COOKING, 4_500))
+        {
+            return true;
+        }
+
+        if (Rs2Widget.isProductionWidgetOpen()
+                || Rs2Widget.findWidget("How many would you like to cook?", null, false) != null)
+        {
+            Rs2Keyboard.keyPress(KeyEvent.VK_SPACE);
+            expectingCookingXpDrop = true;
+            return true;
+        }
+
+        Rs2TileObjectModel fire = Microbot.getRs2TileObjectCache().query()
+                .fromWorldView()
+                .withId(TROUT_SALMON_FIRE_ID)
+                .nearest();
+        if (fire == null)
+        {
+            Microbot.status = "Waiting for nearby cooking fire";
+            debug("Could not find trout/salmon fire | id={} player={}",
+                    TROUT_SALMON_FIRE_ID,
+                    Rs2Player.getWorldLocation());
+            return true;
+        }
+
+        expectingCookingXpDrop = false;
+        if (Rs2Inventory.useItemOnObject(cookingBatchItemId, fire.getId()))
+        {
+            sleepUntil(() -> Rs2Widget.isProductionWidgetOpen()
+                    || Rs2Widget.findWidget("How many would you like to cook?", null, false) != null, 5_000);
+        }
+        return true;
+    }
+
+    private int selectCookingBatchItem()
+    {
+        int cookingLevel = Microbot.getClient().getRealSkillLevel(Skill.COOKING);
+        if (cookingLevel >= 25 && Rs2Inventory.count(ItemID.RAW_SALMON) > 0)
+        {
+            return ItemID.RAW_SALMON;
+        }
+        if (cookingLevel >= 15 && Rs2Inventory.count(ItemID.RAW_TROUT) > 0)
+        {
+            return ItemID.RAW_TROUT;
+        }
+        return NO_COOKING_BATCH;
+    }
+
+    private String getCookingBatchName()
+    {
+        return cookingBatchItemId == ItemID.RAW_SALMON ? "salmon" : "trout";
+    }
+
+    private void resetCookingBatch()
+    {
+        cookingBatchItemId = NO_COOKING_BATCH;
+        expectingCookingXpDrop = false;
     }
 
     private void fishCurrentTarget()
@@ -240,7 +406,7 @@ public class FishingScript extends Script
 
         if (requiresKaramjaTravel())
         {
-            Microbot.status = "Traveling to Karamja";
+            Microbot.status = "Traveling via Port Sarim to Karamja";
             return KaramjaTravelHelper.travelToKaramjaFishingSpot();
         }
 
@@ -275,25 +441,35 @@ public class FishingScript extends Script
 
     private void clearTargetAreaWalkIfNeeded()
     {
+        stopWalkerIfInsideTargetArea();
+    }
+
+    public void stopWalkerIfInsideTargetArea()
+    {
         WorldPoint playerLocation = Rs2Player.getWorldLocation();
         if (playerLocation == null || !targetArea.contains(playerLocation))
+        {
+            targetAreaArrivalHandled = false;
+            return;
+        }
+
+        if (targetAreaArrivalHandled)
         {
             return;
         }
 
         WorldPoint walkerTarget = Rs2Walker.getCurrentTarget();
-        if (walkerTarget != null || walkingToTargetArea)
-        {
-            KspWalkerGuard.clearActiveWalker("ksp_account_builder_fishing_reached_area");
-            debug("Cleared fishing walker route because player is inside task area | player={} area={} oldWalkerTarget={}",
-                    playerLocation,
-                    targetArea.getDisplayName(),
-                    walkerTarget);
-        }
+        KspWalkerGuard.clearReachedDestination(
+                WALK_KEY_TO_FISHING_AREA,
+                "ksp_account_builder_fishing_reached_area");
+        debug("Cleared fishing walker route because player is inside task area | player={} area={} oldWalkerTarget={}",
+                playerLocation,
+                targetArea.getDisplayName(),
+                walkerTarget);
 
+        targetAreaArrivalHandled = true;
         walkingToTargetArea = false;
         lastWebWalkAtMs = 0L;
-        KspWalkerGuard.clear(WALK_KEY_TO_FISHING_AREA);
     }
 
     private boolean prepareRequiredSupplies(LevelReqs fish)
@@ -309,6 +485,11 @@ public class FishingScript extends Script
         }
 
         if (!Rs2Bank.isOpen())
+        {
+            return false;
+        }
+
+        if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait())
         {
             return false;
         }
@@ -366,6 +547,7 @@ public class FishingScript extends Script
 
     private void bankFishOnly()
     {
+        resetCookingBatch();
         ensureInventoryTabOpen();
 
         if (requiresKaramjaTravel())
@@ -381,6 +563,11 @@ public class FishingScript extends Script
         }
 
         if (!Rs2Bank.isOpen())
+        {
+            return;
+        }
+
+        if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait())
         {
             return;
         }
@@ -497,10 +684,10 @@ public class FishingScript extends Script
     {
         List<Rs2NpcModel> candidates = Microbot.getRs2NpcCache().query()
                 .fromWorldView()
-                .withNames("Fishing spot")
                 .within(searchCenter, searchRadius)
                 .where(candidate -> candidate != null
                         && candidate.getWorldLocation() != null
+                        && isFishingSpotName(candidate)
                         && (requireInsideArea
                         ? fishingArea.contains(candidate.getWorldLocation())
                         : isNearTargetArea(candidate.getWorldLocation(), OUT_OF_AREA_SPOT_FALLBACK_RADIUS))
@@ -519,6 +706,18 @@ public class FishingScript extends Script
                     return playerLocation.distanceTo(candidateLocation);
                 }))
                 .orElse(null);
+    }
+
+    private boolean isFishingSpotName(Rs2NpcModel candidate)
+    {
+        if (candidate == null || candidate.getName() == null)
+        {
+            return false;
+        }
+
+        String name = Rs2UiHelper.stripColTags(candidate.getName()).trim();
+        return "Fishing spot".equalsIgnoreCase(name)
+                || "Rod Fishing spot".equalsIgnoreCase(name);
     }
 
     private boolean isInteractableFishingSpot(Rs2NpcModel candidate)
@@ -635,7 +834,7 @@ public class FishingScript extends Script
             return;
         }
 
-        int amountToWithdraw = Math.min(KARAMJA_COIN_BUFFER - currentCoins, bankCoins);
+        int amountToWithdraw = Math.min(KARAMJA_COIN_RESERVE - currentCoins, bankCoins);
         if (amountToWithdraw <= 0)
         {
             return;
@@ -706,7 +905,10 @@ public class FishingScript extends Script
     @Override
     public void shutdown()
     {
+        resetCookingBatch();
+        randomLevel50Fish = null;
         walkingToTargetArea = false;
+        targetAreaArrivalHandled = false;
         lastNpcInteractionAtMs = 0L;
         lastWebWalkAtMs = 0L;
         state = FishingState.WAITING;
@@ -724,8 +926,8 @@ public class FishingScript extends Script
         SHRIMP(LevelReqs.SHRIMP, List.of("Net", "Small net")),
         SARDINE(LevelReqs.SARDINE, List.of("Bait")),
         HERRING(LevelReqs.HERRING, List.of("Bait")),
-        TROUT(LevelReqs.TROUT, List.of("Lure")),
-        SALMON(LevelReqs.SALMON, List.of("Lure")),
+        TROUT(LevelReqs.TROUT, List.of("Lure", "Bait")),
+        SALMON(LevelReqs.SALMON, List.of("Lure", "Bait")),
         TUNA(LevelReqs.TUNA, List.of("Harpoon")),
         LOBSTER(LevelReqs.LOBSTER, List.of("Cage")),
         SWORDFISH(LevelReqs.SWORDFISH, List.of("Harpoon"));

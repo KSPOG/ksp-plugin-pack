@@ -30,6 +30,9 @@ public enum SellList {
     MITHRIL_SWORD("Mithril sword"),
     STEEL_KITESHIELD("Steel kiteshield"),
     BLACK_SQ_SHIELD("Black sq shield"),
+    TUNA("Tuna"),
+    LOBSTER("Lobster"),
+    SWORDFISH("Swordfish"),
     SPINACH_ROLL("Spinach roll");
 
     private final String displayName;

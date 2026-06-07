@@ -16,6 +16,7 @@ public class KspRandomEventSolver implements BlockingEvent {
         }
 
         return Microbot.getRs2NpcCache().query()
+                .fromWorldView()
                 .where(npc -> npc.getNpc().equals(oldModel.getRuneliteNpc()))
                 .nearest();
     }

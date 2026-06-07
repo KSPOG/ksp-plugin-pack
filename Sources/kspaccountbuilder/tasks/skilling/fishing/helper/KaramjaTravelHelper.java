@@ -18,9 +18,18 @@ public final class KaramjaTravelHelper
             "Captain Tobias"
     );
     private static final List<String> CUSTOMS_OFFICER_NPCS = List.of("Customs Officer");
-    private static final List<String> TRAVEL_ACTIONS = List.of("Travel", "Pay-fare");
+    private static final List<String> TRAVEL_ACTIONS = List.of(
+            "Musa Point",
+            "Port Sarim",
+            "Pay-fare",
+            "Travel",
+            "Talk-to"
+    );
 
-    private static final WorldPoint PORT_SARIM_TRAVEL_POINT = new WorldPoint(3027, 3218, 0);
+    // Force the script to walk to the Port Sarim customs ship first.
+    // Do not path directly to Musa Point from the mainland, otherwise WebWalker may choose
+    // unrelated transports such as the Rimmington ship network.
+    private static final WorldPoint PORT_SARIM_TRAVEL_POINT = new WorldPoint(3029, 3217, 0);
     private static final WorldPoint PORT_SARIM_DEPOSIT_POINT = new WorldPoint(3047, 3236, 0);
     private static final WorldPoint KARAMJA_CUSTOMS_POINT = new WorldPoint(2954, 3148, 0);
     private static final WorldPoint KARAMJA_FISHING_POINT = new WorldPoint(2924, 3177, 0);
@@ -39,6 +48,7 @@ public final class KaramjaTravelHelper
     private static final int FISHING_AREA_DISTANCE = 5;
     private static final int DEPOSIT_AREA_DISTANCE = 6;
     private static final long WALK_REFIRE_COOLDOWN_MS = 3_000L;
+    private static final long TRAVEL_TRANSITION_TIMEOUT_MS = 15_000L;
 
     private static final String WALK_KEY_TO_PORT_SARIM_TRAVEL = "ksp_fishing_karamja_port_sarim_travel";
     private static final String WALK_KEY_TO_PORT_SARIM_DEPOSIT = "ksp_fishing_karamja_port_sarim_deposit";
@@ -47,19 +57,27 @@ public final class KaramjaTravelHelper
     private static final String WALK_KEY_TO_PORT_SARIM_NPC = "ksp_fishing_karamja_port_sarim_npc";
     private static final String WALK_KEY_TO_CUSTOMS_NPC = "ksp_fishing_karamja_customs_npc";
 
+    private static volatile TravelDirection pendingTravelDirection;
+    private static volatile long pendingTravelUntilMs;
+
     private KaramjaTravelHelper()
     {
     }
 
     public static boolean travelToKaramjaFishingSpot()
     {
-        if (handleTravelDialogue())
+        if (handleTravelDialogue(TravelDirection.TO_KARAMJA))
         {
             return false;
         }
 
         WorldPoint playerLocation = Rs2Player.getWorldLocation();
         if (playerLocation == null)
+        {
+            return false;
+        }
+
+        if (isTravelTransitionPending(TravelDirection.TO_KARAMJA, playerLocation))
         {
             return false;
         }
@@ -72,29 +90,46 @@ public final class KaramjaTravelHelper
 
         if (isInKaramjaArea(playerLocation))
         {
-            walkToPoint(WALK_KEY_TO_KARAMJA_FISHING, KARAMJA_FISHING_POINT, FISHING_AREA_DISTANCE);
+            webWalkToPoint(
+                    WALK_KEY_TO_KARAMJA_FISHING,
+                    KARAMJA_FISHING_POINT,
+                    FISHING_AREA_DISTANCE);
             return false;
         }
 
-        if (playerLocation.distanceTo(PORT_SARIM_TRAVEL_POINT) > NPC_REACH_DISTANCE)
+        if (!isNearPortSarimTravelPoint(playerLocation))
         {
-            walkToPoint(WALK_KEY_TO_PORT_SARIM_TRAVEL, PORT_SARIM_TRAVEL_POINT, NPC_REACH_DISTANCE);
+            // Important: the only mainland target before Musa Point must be the Port Sarim boat.
+            // This prevents the global pathfinder from selecting Rimmington/charter-style routes.
+            KspWalkerGuard.clear(WALK_KEY_TO_KARAMJA_FISHING);
+            webWalkToPoint(
+                    WALK_KEY_TO_PORT_SARIM_TRAVEL,
+                    PORT_SARIM_TRAVEL_POINT,
+                    NPC_REACH_DISTANCE);
             return false;
         }
 
-        interactWithNearestNpc(PORT_SARIM_TRAVEL_NPCS, WALK_KEY_TO_PORT_SARIM_NPC);
+        interactWithNearestNpc(
+                PORT_SARIM_TRAVEL_NPCS,
+                WALK_KEY_TO_PORT_SARIM_NPC,
+                TravelDirection.TO_KARAMJA);
         return false;
     }
 
     public static boolean returnToPortSarimDepositPoint()
     {
-        if (handleTravelDialogue())
+        if (handleTravelDialogue(TravelDirection.TO_PORT_SARIM))
         {
             return false;
         }
 
         WorldPoint playerLocation = Rs2Player.getWorldLocation();
         if (playerLocation == null)
+        {
+            return false;
+        }
+
+        if (isTravelTransitionPending(TravelDirection.TO_PORT_SARIM, playerLocation))
         {
             return false;
         }
@@ -108,17 +143,26 @@ public final class KaramjaTravelHelper
 
         if (isInKaramjaDockArea(playerLocation))
         {
-            interactWithNearestNpc(CUSTOMS_OFFICER_NPCS, WALK_KEY_TO_CUSTOMS_NPC);
+            interactWithNearestNpc(
+                    CUSTOMS_OFFICER_NPCS,
+                    WALK_KEY_TO_CUSTOMS_NPC,
+                    TravelDirection.TO_PORT_SARIM);
             return false;
         }
 
         if (isInKaramjaArea(playerLocation))
         {
-            walkToPoint(WALK_KEY_TO_KARAMJA_CUSTOMS, KARAMJA_CUSTOMS_POINT, NPC_REACH_DISTANCE);
+            webWalkToPoint(
+                    WALK_KEY_TO_KARAMJA_CUSTOMS,
+                    KARAMJA_CUSTOMS_POINT,
+                    NPC_REACH_DISTANCE);
             return false;
         }
 
-        walkToPoint(WALK_KEY_TO_PORT_SARIM_DEPOSIT, PORT_SARIM_DEPOSIT_POINT, DEPOSIT_AREA_DISTANCE);
+        webWalkToPoint(
+                WALK_KEY_TO_PORT_SARIM_DEPOSIT,
+                PORT_SARIM_DEPOSIT_POINT,
+                DEPOSIT_AREA_DISTANCE);
         return false;
     }
 
@@ -148,6 +192,18 @@ public final class KaramjaTravelHelper
                 KARAMJA_DOCK_MIN_Y,
                 KARAMJA_DOCK_MAX_Y
         );
+    }
+
+    public static boolean isNearPortSarimTravelPoint()
+    {
+        return isNearPortSarimTravelPoint(Rs2Player.getWorldLocation());
+    }
+
+    public static boolean isNearPortSarimTravelPoint(WorldPoint location)
+    {
+        return location != null
+                && location.getPlane() == PORT_SARIM_TRAVEL_POINT.getPlane()
+                && location.distanceTo2D(PORT_SARIM_TRAVEL_POINT) <= NPC_REACH_DISTANCE;
     }
 
     public static boolean isInPortSarimCustomsArea()
@@ -201,6 +257,7 @@ public final class KaramjaTravelHelper
 
     public static void clearWalkerState()
     {
+        clearPendingTravel();
         KspWalkerGuard.clear(WALK_KEY_TO_PORT_SARIM_TRAVEL);
         KspWalkerGuard.clear(WALK_KEY_TO_PORT_SARIM_DEPOSIT);
         KspWalkerGuard.clear(WALK_KEY_TO_KARAMJA_CUSTOMS);
@@ -209,7 +266,7 @@ public final class KaramjaTravelHelper
         KspWalkerGuard.clear(WALK_KEY_TO_CUSTOMS_NPC);
     }
 
-    private static boolean handleTravelDialogue()
+    private static boolean handleTravelDialogue(TravelDirection direction)
     {
         if (Rs2Dialogue.hasContinue())
         {
@@ -222,13 +279,21 @@ public final class KaramjaTravelHelper
             return false;
         }
 
-        return Rs2Dialogue.clickOption(
+        boolean clicked = Rs2Dialogue.clickOption(
+                "Yes please",
                 "Yes",
+                "Musa Point",
                 "Karamja",
+                "Port Sarim",
                 "pay",
                 "travel",
                 "sail"
         );
+        if (clicked)
+        {
+            markTravelPending(direction);
+        }
+        return clicked;
     }
 
     private static void walkToPoint(String key, WorldPoint target, int arriveDistance)
@@ -236,7 +301,15 @@ public final class KaramjaTravelHelper
         KspWalkerGuard.walkFastCanvasToPoint(key, target, arriveDistance, WALK_REFIRE_COOLDOWN_MS);
     }
 
-    private static boolean interactWithNearestNpc(List<String> npcNames, String walkKey)
+    private static void webWalkToPoint(String key, WorldPoint target, int arriveDistance)
+    {
+        KspWalkerGuard.walkToPoint(key, target, arriveDistance, WALK_REFIRE_COOLDOWN_MS);
+    }
+
+    private static boolean interactWithNearestNpc(
+            List<String> npcNames,
+            String walkKey,
+            TravelDirection direction)
     {
         Rs2NpcModel npc = findNearestNpc(npcNames);
         if (npc == null)
@@ -267,8 +340,44 @@ public final class KaramjaTravelHelper
         if (clicked)
         {
             KspWalkerGuard.clear(walkKey);
+            if (!"Talk-to".equalsIgnoreCase(action))
+            {
+                markTravelPending(direction);
+            }
         }
         return clicked;
+    }
+
+    private static boolean isTravelTransitionPending(TravelDirection direction, WorldPoint playerLocation)
+    {
+        TravelDirection pendingDirection = pendingTravelDirection;
+        if (pendingDirection == null)
+        {
+            return false;
+        }
+
+        boolean arrived = pendingDirection == TravelDirection.TO_KARAMJA
+                ? isInKaramjaArea(playerLocation)
+                : !isInKaramjaArea(playerLocation);
+        if (arrived || System.currentTimeMillis() >= pendingTravelUntilMs)
+        {
+            clearPendingTravel();
+            return false;
+        }
+
+        return pendingDirection == direction;
+    }
+
+    private static void markTravelPending(TravelDirection direction)
+    {
+        pendingTravelDirection = direction;
+        pendingTravelUntilMs = System.currentTimeMillis() + TRAVEL_TRANSITION_TIMEOUT_MS;
+    }
+
+    private static void clearPendingTravel()
+    {
+        pendingTravelDirection = null;
+        pendingTravelUntilMs = 0L;
     }
 
     private static Rs2NpcModel findNearestNpc(List<String> npcNames)
@@ -332,5 +441,11 @@ public final class KaramjaTravelHelper
                 && location.getX() <= maxX
                 && location.getY() >= minY
                 && location.getY() <= maxY;
+    }
+
+    private enum TravelDirection
+    {
+        TO_KARAMJA,
+        TO_PORT_SARIM
     }
 }

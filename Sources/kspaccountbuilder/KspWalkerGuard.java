@@ -104,7 +104,9 @@ public final class KspWalkerGuard
             removedRequest = WALK_REQUESTS.remove(key);
         }
 
-        if (removedRequest != null || Rs2Walker.getCurrentTarget() != null)
+        WorldPoint currentTarget = Rs2Walker.getCurrentTarget();
+        if (removedRequest != null
+                && isSameDestination(currentTarget, removedRequest.target, SAME_TARGET_DISTANCE))
         {
             clearActiveWalker("ksp_account_builder_reached_destination");
         }
@@ -125,6 +127,17 @@ public final class KspWalkerGuard
 
         lastGlobalClearAtMs = now;
         Rs2Walker.clearWalkingRoute(reason != null ? reason : "ksp_account_builder_clear_walker");
+    }
+
+    public static void clearReachedDestination(String key, String reason)
+    {
+        if (key != null)
+        {
+            WALK_REQUESTS.remove(key);
+        }
+
+        lastGlobalClearAtMs = System.currentTimeMillis();
+        Rs2Walker.clearWalkingRoute(reason != null ? reason : "ksp_account_builder_reached_destination");
     }
 
     private static boolean shouldWalkToPoint(String key, WorldPoint target, int arriveDistance, long refireCooldownMs)

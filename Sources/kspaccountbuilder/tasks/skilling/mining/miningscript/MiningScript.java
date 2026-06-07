@@ -19,6 +19,7 @@ import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.areas.Areas;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.equiplevels.PickaxeEquip;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.levelreqmining.MiningReq;
@@ -156,6 +157,13 @@ public class MiningScript extends Script
                 return;
             }
 
+            if (Rs2Bank.isOpen() && hasAnyPickaxeEquippedOrInInventory())
+            {
+                Microbot.status = "Closing bank";
+                closeBankIfOpen();
+                return;
+            }
+
             if (!upgradePickaxe(miningLevel, attackLevel))
             {
                 return;
@@ -163,6 +171,8 @@ public class MiningScript extends Script
 
             if (!hasAnyPickaxeEquippedOrInInventory())
             {
+                closeBankIfOpen();
+                Microbot.status = "No pickaxe available";
                 debug("No pickaxe available in inventory or equipment, waiting before proceeding");
                 return;
             }
@@ -210,7 +220,7 @@ public class MiningScript extends Script
             if (activePickaxeName == null)
             {
                 debug("No eligible pickaxe available up to target {}", targetPickaxeName);
-                Rs2Bank.closeBank();
+                closeBankIfOpen();
                 return true;
             }
         }
@@ -232,6 +242,12 @@ public class MiningScript extends Script
 
             if (Rs2Bank.isOpen() && Rs2Bank.count(activePickaxeName) > 0)
             {
+                if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpen())
+                {
+                    sleep(300);
+                    return false;
+                }
+
                 if (!KspBankMode.ensureWithdrawAsItem())
                 {
                     debug("Waiting for withdraw-as-item mode before withdrawing {}", activePickaxeName);
@@ -251,7 +267,7 @@ public class MiningScript extends Script
         {
             if (Rs2Bank.isOpen())
             {
-                Rs2Bank.closeBank();
+                closeBankIfOpen();
                 return false;
             }
 
@@ -263,11 +279,17 @@ public class MiningScript extends Script
 
         if (Rs2Bank.isOpen())
         {
+            if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpen())
+            {
+                sleep(300);
+                return false;
+            }
+
             depositOutdatedPickaxes(activePickaxeName);
 
             if (!hasOutdatedPickaxeInInventory(activePickaxeName))
             {
-                Rs2Bank.closeBank();
+                closeBankIfOpen();
             }
 
             return false;
@@ -444,20 +466,39 @@ public class MiningScript extends Script
 
         if (Rs2Bank.isOpen())
         {
+            if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpen())
+            {
+                sleep(300);
+                return;
+            }
+
             String pickaxeToKeep = resolveInventoryPickaxeToKeep(miningLevel);
 
             if (pickaxeToKeep != null)
             {
                 Rs2Bank.depositAllExcept(pickaxeToKeep);
+                sleepUntil(() -> !Rs2Inventory.isFull(), 2_000);
             }
             else
             {
                 Rs2Bank.depositAll();
+                sleepUntil(() -> Rs2Inventory.isEmpty(), 2_000);
             }
 
             sleep(300);
-            Rs2Bank.closeBank();
+            closeBankIfOpen();
         }
+    }
+
+    private boolean closeBankIfOpen()
+    {
+        if (!Rs2Bank.isOpen())
+        {
+            return true;
+        }
+
+        Rs2Bank.closeBank();
+        return sleepUntil(() -> !Rs2Bank.isOpen(), 2_000);
     }
 
     private String resolveInventoryPickaxeToKeep(int miningLevel)

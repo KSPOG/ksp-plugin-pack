@@ -16,6 +16,7 @@ import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.buyscript.Buy;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.woodcutting.equiplevels.AxeEquip;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.woodcutting.levelreqwc.WoodCuttingReq;
@@ -42,10 +43,16 @@ public class WoodCuttingScript extends Script {
     private static final int OUT_OF_AREA_TREE_FALLBACK_RADIUS = 4;
     private static final int MID_TIER_RANDOM_MAX_LEVEL = 60;
     private static final int WILLOW_SAFE_COMBAT_LEVEL = 16;
+    private static final int DRAYNOR_OAK_MIN_COMBAT_LEVEL = 53;
 
     private static final List<String> AXE_NAMES = Buy.AXE_NAME_LIST;
     private static final List<TreeAreas> OAK_AREAS = Arrays.asList(
             TreeAreas.OAK_TREE_DRAYNOR,
+            TreeAreas.VCASTLE_OAKS,
+            TreeAreas.VWEST_OAKS,
+            TreeAreas.VEAST_OAKS
+    );
+    private static final List<TreeAreas> LOW_COMBAT_OAK_AREAS = Arrays.asList(
             TreeAreas.VCASTLE_OAKS,
             TreeAreas.VWEST_OAKS,
             TreeAreas.VEAST_OAKS
@@ -179,6 +186,10 @@ public class WoodCuttingScript extends Script {
             }
 
             if (Rs2Bank.isOpen() && Rs2Bank.count(activeAxeName) > 0) {
+                if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait()) {
+                    return false;
+                }
+
                 if (!KspBankMode.ensureWithdrawAsItem()) {
                     this.debug("Waiting for withdraw-as-item mode before withdrawing {}", activeAxeName);
                     return false;
@@ -205,6 +216,10 @@ public class WoodCuttingScript extends Script {
         }
 
         if (Rs2Bank.isOpen()) {
+            if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait()) {
+                return false;
+            }
+
             this.depositOutdatedAxes(activeAxeName);
 
             if (!this.hasOutdatedAxeInInventory(activeAxeName)) {
@@ -397,6 +412,10 @@ public class WoodCuttingScript extends Script {
         }
 
         if (Rs2Bank.isOpen()) {
+            if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait()) {
+                return;
+            }
+
             String axeToKeep = this.resolveInventoryAxeToKeep(woodcuttingLevel);
 
             if (axeToKeep != null) {
@@ -690,11 +709,22 @@ public class WoodCuttingScript extends Script {
     }
 
     private TreeAreas resolveRandomOakArea() {
-        if (this.randomOakArea == null) {
-            this.randomOakArea = OAK_AREAS.get(ThreadLocalRandom.current().nextInt(OAK_AREAS.size()));
+        int combatLevel = this.getCombatLevel();
+        if (this.randomOakArea == TreeAreas.OAK_TREE_DRAYNOR
+                && combatLevel < DRAYNOR_OAK_MIN_COMBAT_LEVEL) {
+            this.randomOakArea = null;
+        }
 
-            this.debug("Selected oak woodcutting area {}",
-                    this.randomOakArea.getDisplayName());
+        if (this.randomOakArea == null) {
+            List<TreeAreas> eligibleAreas = combatLevel >= DRAYNOR_OAK_MIN_COMBAT_LEVEL
+                    ? OAK_AREAS
+                    : LOW_COMBAT_OAK_AREAS;
+            this.randomOakArea = eligibleAreas.get(
+                    ThreadLocalRandom.current().nextInt(eligibleAreas.size()));
+
+            this.debug("Selected oak woodcutting area {} at combat level {}",
+                    this.randomOakArea.getDisplayName(),
+                    combatLevel);
         }
 
         return this.randomOakArea;

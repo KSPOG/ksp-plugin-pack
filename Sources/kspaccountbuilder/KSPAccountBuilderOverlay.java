@@ -61,6 +61,11 @@ public class KSPAccountBuilderOverlay extends OverlayPanel
                 .right(formatDuration(script.getRuntimeSeconds()))
                 .build());
 
+        panelComponent.getChildren().add(LineComponent.builder()
+                .left("Account Play Time:")
+                .right(formatDuration(script.getAccountPlayTimeSeconds()))
+                .build());
+
         if (config.doBreaks())
         {
             if (script.isBreakActive())

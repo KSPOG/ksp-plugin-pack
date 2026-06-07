@@ -11,6 +11,7 @@ public enum KspDeveloperTask {
     MINING,
     WOODCUTTING,
     FISHING,
+    COOKING,
     MELEE,
     GE_SELL,
     GE_BUY,
@@ -18,4 +19,3 @@ public enum KspDeveloperTask {
     SMELTING;
 
 }
-

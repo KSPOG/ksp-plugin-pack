@@ -25,11 +25,11 @@ import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.areas.CombatAreas;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.equipment.weapon.Weapons;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.food.Food;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.loot.alkharidwarriotloot.WarriorLoot;
-import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.loot.cowloot.CowLoot;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.loot.hillgiantloot.HillGiantLoot;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.loot.mossgiantloot.MossGiantLoot;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.meleescript.CombatState;
@@ -49,11 +49,14 @@ import org.slf4j.LoggerFactory;
 public class MeleeScript
         extends Script {
     private static final Logger log = LoggerFactory.getLogger(MeleeScript.class);
-    private static final int LOOP_DELAY_MS = 600;
+    private static final int LOOP_DELAY_MS = 400;
     private static final int WEB_WALK_COOLDOWN_MS = 3000;
     private static final int TARGET_FOOD_COUNT = Buy.MELEE_TARGET_FOOD_COUNT;
     private static final int CHICKEN_TARGET_COMBAT_STAT_LEVEL = 15;
     private static final int LOOT_RADIUS = 12;
+    private static final WorldPoint CHICKEN_WALK_TARGET = new WorldPoint(3177, 3298, 0);
+    private static final int CHICKEN_COMBAT_RADIUS = 6;
+    private static final String[] CHICKEN_LOOT_NAMES = {"Bones", "Feather"};
     private String status = "Idle";
     private CombatState state = CombatState.PREPARING;
     private boolean debugLogging;
@@ -66,7 +69,7 @@ public class MeleeScript
 
     public boolean run() {
         this.shutdown();
-        this.status = "Starting melee training";
+        this.setStatus("Starting melee training");
         this.state = CombatState.PREPARING;
         this.mainScheduledFuture = this.scheduledExecutorService.scheduleWithFixedDelay(() -> {
             try {
@@ -84,7 +87,7 @@ public class MeleeScript
                         Rs2Player.isMoving(),
                         Rs2Player.isAnimating(),
                         Rs2Player.isInteracting(),
-                        Rs2Combat.inCombat(),
+                        this.isActivelyFighting(),
                         Microbot.getClient().getBoostedSkillLevel(Skill.HITPOINTS),
                         Microbot.getClient().getRealSkillLevel(Skill.HITPOINTS),
                         Rs2Bank.isOpen());
@@ -92,12 +95,12 @@ public class MeleeScript
                     this.state = CombatState.PREPARING;
                     return;
                 }
-                if (this.lootOwnDrops(stage)) {
-                    this.state = CombatState.LOOTING;
-                    return;
-                }
                 if (this.buryBonesInInventory()) {
                     this.state = CombatState.PREPARING;
+                    return;
+                }
+                if (this.lootOwnDrops(stage)) {
+                    this.state = CombatState.LOOTING;
                     return;
                 }
                 if (this.shouldBank(stage)) {
@@ -111,7 +114,7 @@ public class MeleeScript
                 }
                 if (!this.hasCurrentTaskWeaponEquippedOrInInventory()) {
                     this.state = CombatState.PREPARING;
-                    this.status = "Waiting for melee weapon";
+                    this.setStatus("Waiting for melee weapon");
                     return;
                 }
                 if (this.ensureBalancedAttackStyle()) {
@@ -127,17 +130,12 @@ public class MeleeScript
                     this.lootOwnDrops(stage);
                     return;
                 }
-                if (Rs2Player.isMoving()) {
-                    this.state = CombatState.WALKING_TO_AREA;
-                    this.status = "Moving to " + stage.primaryNpc.getDisplayName();
-                    return;
-                }
-                if (Rs2Player.isAnimating() || Rs2Combat.inCombat()) {
+                if (this.isActivelyFighting()) {
                     this.state = CombatState.FIGHTING;
                     this.handleHealing();
                     this.ensureBalancedAttackStyle();
-                    if (Rs2Combat.inCombat() || Rs2Player.isAnimating()) {
-                        this.status = "Fighting " + stage.primaryNpc.getDisplayName();
+                    if (this.isActivelyFighting()) {
+                        this.setStatus("Fighting " + stage.primaryNpc.getDisplayName());
                     }
                     return;
                 }
@@ -151,7 +149,7 @@ public class MeleeScript
             catch (Exception ex) {
                 Microbot.logStackTrace((String)((Object)((Object)this)).getClass().getSimpleName(), (Exception)ex);
             }
-        }, 0L, 600L, TimeUnit.MILLISECONDS);
+        }, 0L, LOOP_DELAY_MS, TimeUnit.MILLISECONDS);
         return true;
     }
 
@@ -162,7 +160,7 @@ public class MeleeScript
         if (attackLevel < CHICKEN_TARGET_COMBAT_STAT_LEVEL
                 || strengthLevel < CHICKEN_TARGET_COMBAT_STAT_LEVEL
                 || defenceLevel < CHICKEN_TARGET_COMBAT_STAT_LEVEL) {
-            return new TrainingStage(CombatAreas.CHICKENS, NPC.CHICKEN, null, (String[])Arrays.stream(CowLoot.values()).map(CowLoot::getDisplayName).toArray(String[]::new));
+            return new TrainingStage(CombatAreas.CHICKENS, NPC.CHICKEN, null, CHICKEN_LOOT_NAMES);
         }
         if (attackLevel < 30 || strengthLevel < 30 || defenceLevel < 30) {
             return new TrainingStage(CombatAreas.AL_KHARID_WARRIOR, NPC.AL_KHARID_WARRIOR, null, (String[])Arrays.stream(WarriorLoot.values()).map(WarriorLoot::getDisplayName).toArray(String[]::new));
@@ -186,7 +184,7 @@ public class MeleeScript
             return false;
         }
 
-        this.status = "Eating " + bestInventoryFood.getDisplayName() + " at " + currentHp + "/" + maxHp + " hp";
+        this.setStatus("Eating " + bestInventoryFood.getDisplayName() + " at " + currentHp + "/" + maxHp + " hp");
 
         if (Rs2Inventory.interact(bestInventoryFood.getItemId(), "Eat")) {
             MeleeScript.sleepUntil(() -> Microbot.getClient().getBoostedSkillLevel(Skill.HITPOINTS) > currentHp, 1800);
@@ -197,17 +195,33 @@ public class MeleeScript
     }
 
     private boolean buryBonesInInventory() {
-        if (Rs2Player.isMoving() || Rs2Player.isInteracting()) {
+        if (Rs2Player.isMoving() || this.isActivelyFighting()) {
             return false;
         }
         List<Rs2ItemModel> bones = Rs2Inventory.getBones();
         if (bones == null || bones.isEmpty()) {
             return false;
         }
-        this.status = "Burying bones";
+        this.setStatus("Burying bones");
         for (Rs2ItemModel bone : bones) {
-            if (bone == null || bone.getName() == null || !Rs2Inventory.interact((Rs2ItemModel)bone, (String)"Bury")) continue;
-            MeleeScript.sleep((int)250, (int)400);
+            if (bone == null || bone.getName() == null) {
+                continue;
+            }
+
+            int boneId = bone.getId();
+            int quantityBefore = Rs2Inventory.itemQuantity(boneId);
+            if (!Rs2Inventory.interact(bone, "Bury")) {
+                continue;
+            }
+
+            boolean buried = MeleeScript.sleepUntil(
+                    () -> Rs2Inventory.itemQuantity(boneId) < quantityBefore,
+                    800);
+            this.debug("Bone bury interaction | item={} id={} quantityBefore={} buried={}",
+                    bone.getName(),
+                    boneId,
+                    quantityBefore,
+                    buried);
             return true;
         }
         return false;
@@ -228,7 +242,7 @@ public class MeleeScript
     }
 
     private void handleBanking(TrainingStage stage) {
-        this.status = "Banking for " + stage.primaryNpc.getDisplayName();
+        this.setStatus("Banking for " + stage.primaryNpc.getDisplayName());
 
         if (!Rs2Bank.isOpen()) {
             if (!Rs2Bank.walkToBankAndUseBank() && !Rs2Bank.openBank()) {
@@ -243,15 +257,22 @@ public class MeleeScript
             return;
         }
 
-        if (!Rs2Inventory.isEmpty()) {
-            Rs2Bank.depositAll();
-            MeleeScript.sleepUntil(Rs2Inventory::isEmpty, 3000);
+        if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait()) {
+            return;
         }
 
         GearPlan gearPlan = this.buildGearPlan();
 
+        if (!Rs2Inventory.isEmpty() && !this.hasMeleeSetupItemsInInventory(gearPlan)) {
+            Rs2Bank.depositAll();
+            MeleeScript.sleepUntil(Rs2Inventory::isEmpty, 3000);
+            return;
+        }
+
         for (String desiredItem : gearPlan.desiredItems) {
-            if (desiredItem == null || Rs2Equipment.isWearing((String[]) new String[]{desiredItem})) {
+            if (desiredItem == null
+                    || Rs2Equipment.isWearing((String[]) new String[]{desiredItem})
+                    || Rs2Inventory.hasItem((String[]) new String[]{desiredItem})) {
                 continue;
             }
 
@@ -265,16 +286,18 @@ public class MeleeScript
         }
 
         Food bankFood = this.getBestFoodAvailableInBank();
+        int currentFoodCount = this.getFoodCountInInventory();
+        int missingFoodCount = Math.max(0, TARGET_FOOD_COUNT - currentFoodCount);
 
-        if (bankFood != null) {
+        if (bankFood != null && missingFoodCount > 0) {
             this.debug("Withdrawing combat food by item id | food={} id={} amount={}",
                     bankFood.getDisplayName(),
                     bankFood.getItemId(),
-                    TARGET_FOOD_COUNT);
+                    missingFoodCount);
 
-            Rs2Bank.withdrawX(bankFood.getItemId(), TARGET_FOOD_COUNT);
+            Rs2Bank.withdrawX(bankFood.getItemId(), missingFoodCount);
             MeleeScript.sleepUntil(() -> Rs2Inventory.itemQuantity(bankFood.getItemId()) >= 1, 2000);
-        } else {
+        } else if (bankFood == null && currentFoodCount <= 0) {
             this.debug("No melee food available in bank; GE_BUY should handle food purchases");
         }
 
@@ -283,22 +306,34 @@ public class MeleeScript
     }
 
     private boolean equipInventoryUpgrades() {
+        if (Rs2Bank.isOpen()) {
+            Rs2Bank.closeBank();
+            MeleeScript.sleepUntil(() -> !Rs2Bank.isOpen(), 2000);
+            return true;
+        }
+
         GearPlan gearPlan = this.buildGearPlan();
         for (String desiredItem : gearPlan.desiredItems) {
             if (desiredItem == null || Rs2Equipment.isWearing((String[])new String[]{desiredItem}) || !Rs2Inventory.hasItem((String[])new String[]{desiredItem})) continue;
-            this.status = "Equipping " + desiredItem;
-            Rs2Inventory.wield((String[])new String[]{desiredItem});
-            MeleeScript.sleepUntil(() -> Rs2Equipment.isWearing((String[])new String[]{desiredItem}), (int)2000);
-            return true;
+            this.setStatus("Equipping " + desiredItem);
+            boolean interactionStarted = Rs2Inventory.wield((String[])new String[]{desiredItem});
+            boolean equipped = interactionStarted
+                    && MeleeScript.sleepUntil(() -> Rs2Equipment.isWearing((String[])new String[]{desiredItem}), 2000);
+            this.debug("Equipment interaction | item={} interactionStarted={} equipped={} inventoryPresent={}",
+                    desiredItem,
+                    interactionStarted,
+                    equipped,
+                    Rs2Inventory.hasItem((String[]) new String[]{desiredItem}));
+            if (!equipped) {
+                this.setStatus("Retrying equipment: " + desiredItem);
+            }
+            return equipped;
         }
         return false;
     }
 
     private boolean lootOwnDrops(TrainingStage stage) {
-        if (Rs2Player.isMoving() || Rs2Player.isInteracting()) {
-            return false;
-        }
-        if (this.projectedFreeSlotsAfterBury() <= 0) {
+        if (Rs2Player.isMoving() || this.isActivelyFighting()) {
             return false;
         }
         Rs2TileItemModel loot = this.findNearestLoot(stage);
@@ -306,7 +341,7 @@ public class MeleeScript
             return false;
         }
 
-        this.status = "Looting " + loot.getName();
+        this.setStatus("Looting " + loot.getName());
         boolean clicked = loot.pickup();
         this.debug("Loot pickup interaction | clicked={} item={} id={} qty={} loc={} player={}",
                 clicked,
@@ -340,11 +375,21 @@ public class MeleeScript
 
         return Microbot.getRs2TileItemCache().query()
                 .fromWorldView()
-                .within(12)
+                .within(LOOT_RADIUS)
                 .where(item -> item.getName() != null
-                        && lootNames.contains(item.getName().trim().toLowerCase(Locale.ENGLISH))
-                        && item.isLootAble())
-                .nearestOnClientThread(12);
+                        && item.isLootAble()
+                        && this.isLocationInTargetArea(item.getWorldLocation(), stage)
+                        && this.canStoreLoot(item)
+                        && (lootNames.contains(item.getName().trim().toLowerCase(Locale.ENGLISH))
+                            || (stage.area != CombatAreas.CHICKENS && item.isOwned())))
+                .nearestOnClientThread(LOOT_RADIUS);
+    }
+
+    private boolean canStoreLoot(Rs2TileItemModel item) {
+        if (Rs2Inventory.emptySlotCount() > 0) {
+            return true;
+        }
+        return item.isStackable() && Rs2Inventory.hasItem(item.getId());
     }
 
     private boolean ensureInTargetArea(CombatAreas targetArea) {
@@ -355,10 +400,10 @@ public class MeleeScript
         if (Rs2Player.isMoving()) {
             return false;
         }
-        this.status = "Walking to " + targetArea.getDisplayName();
+        this.setStatus("Walking to " + targetArea.getDisplayName());
         if (KspWalkerGuard.walkToDestination(
                 "Melee:target-area",
-                targetArea::getRandomPoint,
+                () -> targetArea == CombatAreas.CHICKENS ? CHICKEN_WALK_TARGET : targetArea.getRandomPoint(),
                 targetArea::contains,
                 2,
                 WEB_WALK_COOLDOWN_MS)) {
@@ -401,7 +446,7 @@ public class MeleeScript
                 .collect(Collectors.toList());
         target = candidates.isEmpty() ? null : candidates.get(0);
         if (target == null) {
-            this.status = "Waiting for " + stage.primaryNpc.getDisplayName();
+            this.setStatus("Waiting for " + stage.primaryNpc.getDisplayName());
             KspTaskDebug.throttled(log, this.debugLogging, "Melee", "no-target", 3_000L,
                     "no attack target found | primary={} secondary={} player={} area={}",
                     stage.primaryNpc.getDisplayName(),
@@ -411,10 +456,10 @@ public class MeleeScript
             return;
         }
         if (Objects.equals(currentInteracting, target.getNpc())) {
-            this.status = "Fighting " + target.getName();
+            this.setStatus("Fighting " + target.getName());
             return;
         }
-        this.status = "Attacking " + target.getName();
+        this.setStatus("Attacking " + target.getName());
         this.debug("Attempting npc attack | target={} id={} loc={} combatLevel={} reachable={} player={} distance={} targetInteracting={}",
                 target.getName(),
                 target.getId(),
@@ -437,7 +482,18 @@ public class MeleeScript
     }
 
     private boolean isNpcInTargetArea(Rs2NpcModel npc, TrainingStage stage) {
-        return npc != null && npc.getWorldLocation() != null && stage != null && stage.area.contains(npc.getWorldLocation());
+        return npc != null
+                && stage != null
+                && this.isLocationInTargetArea(npc.getWorldLocation(), stage);
+    }
+
+    private boolean isLocationInTargetArea(WorldPoint location, TrainingStage stage) {
+        if (location == null || stage == null || !stage.area.contains(location)) {
+            return false;
+        }
+
+        return stage.area != CombatAreas.CHICKENS
+                || location.distanceTo(CHICKEN_WALK_TARGET) <= CHICKEN_COMBAT_RADIUS;
     }
 
     private boolean canAttackNpc(Rs2NpcModel npc, Player localPlayer) {
@@ -446,6 +502,13 @@ public class MeleeScript
         }
         Actor interacting = npc.getInteracting();
         return interacting == null || Objects.equals(interacting, localPlayer);
+    }
+
+    private boolean isActivelyFighting() {
+        Actor interacting = Rs2Player.getInteracting();
+        return interacting != null
+                && interacting.getCombatLevel() > 0
+                && interacting.getHealthRatio() != 0;
     }
 
     private boolean ensureBalancedAttackStyle() {
@@ -474,12 +537,12 @@ public class MeleeScript
         int currentStyleIndex = Microbot.getVarbitPlayerValue(43);
 
         if (currentStyleIndex == targetStyleIndex) {
-            this.status = "Training " + targetSkill.getName().toLowerCase(Locale.ENGLISH);
+            this.setStatus("Training " + targetSkill.getName().toLowerCase(Locale.ENGLISH));
             return false;
         }
 
         if (Rs2Player.isMoving()) {
-            this.status = "Waiting to switch combat style";
+            this.setStatus("Waiting to switch combat style");
             return false;
         }
 
@@ -488,7 +551,7 @@ public class MeleeScript
             MeleeScript.sleepUntil(() -> Rs2Tab.getCurrentTab() == InterfaceTab.COMBAT, 1500);
         }
 
-        this.status = "Switching combat style to " + targetSkill.getName().toLowerCase(Locale.ENGLISH);
+        this.setStatus("Switching combat style to " + targetSkill.getName().toLowerCase(Locale.ENGLISH));
 
         Rs2Combat.setAttackStyle(targetWidget);
 
@@ -534,8 +597,8 @@ public class MeleeScript
     private boolean hasCurrentTaskWeaponEquippedOrInInventory() {
         TrainingStage stage = this.resolveTrainingStage();
         if (stage.primaryNpc == NPC.CHICKEN) {
-            return this.hasWeaponEquippedOrInInventory("Bronze sword");
-        }
+        return this.hasWeaponEquippedOrInInventory("Bronze sword");
+    }
 
         return this.getBestOwnedWeaponUpToCurrentLevel() != null;
     }
@@ -550,6 +613,14 @@ public class MeleeScript
 
     private boolean hasInventoryEquipmentToEquip() {
         return this.buildGearPlan().desiredItems.stream().anyMatch(item -> item != null && Rs2Inventory.hasItem((String[])new String[]{item}) && !Rs2Equipment.isWearing((String[])new String[]{item}));
+    }
+
+    private boolean hasMeleeSetupItemsInInventory(GearPlan gearPlan) {
+        if (gearPlan != null && gearPlan.desiredItems.stream().anyMatch(item -> item != null && Rs2Inventory.hasItem((String[]) new String[]{item}))) {
+            return true;
+        }
+
+        return this.getFoodCountInInventory() > 0;
     }
 
     private boolean hasItemAnywhere(String itemName) {
@@ -569,15 +640,20 @@ public class MeleeScript
     }
 
     private boolean shouldBankForNoFood(TrainingStage stage) {
+        Food bankFood = this.getBestFoodAvailableInBank();
+        if (stage != null && stage.primaryNpc == NPC.CHICKEN && bankFood == null) {
+            return false;
+        }
+
         if (!Rs2Inventory.isEmpty()) {
             return true;
         }
         if (stage != null && !stage.area.contains(Rs2Player.getWorldLocation())) {
-            return true;
+            return bankFood != null;
         }
         int currentHp = Microbot.getClient().getBoostedSkillLevel(Skill.HITPOINTS);
         int maxHp = Microbot.getClient().getRealSkillLevel(Skill.HITPOINTS);
-        return this.shouldHealNow(currentHp, maxHp);
+        return bankFood != null && this.shouldHealNow(currentHp, maxHp);
     }
 
     private boolean shouldHealNow(int currentHp, int maxHp) {
@@ -612,6 +688,11 @@ public class MeleeScript
         if (this.debugLogging) {
             KspTaskDebug.info(log, true, "Melee", message, args);
         }
+    }
+
+    private void setStatus(String status) {
+        this.status = status;
+        Microbot.status = status;
     }
 
     public String getStatus() {

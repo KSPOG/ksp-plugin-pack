@@ -11,8 +11,11 @@ import net.runelite.api.widgets.Widget;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel;
+import net.runelite.client.plugins.microbot.api.tileobject.models.Rs2TileObjectModel;
 import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.tutorialisland.areas.TutAreas;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2Antiban;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2AntibanSettings;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
@@ -40,6 +43,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 import static net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue.clickContinue;
 import static net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue.hasContinue;
@@ -96,18 +100,18 @@ public class TutorialIslandScript extends Script
             13, 17, 21, 25, 29, 33, 37, 44, 48, 52, 56, 60
     };
 
-    private static final WorldArea START_AREA            = new WorldArea(3092, 3100,  4, 13, 0);
-    private static final WorldArea SURVIVAL_AREA         = new WorldArea(3098, 3089,  8, 11, 0);
-    private static final WorldArea COOKING_AREA          = new WorldArea(3073, 3083,  6,  5, 0);
-    private static final WorldArea QUEST_GUIDE_AREA      = new WorldArea(3083, 3119,  7,  7, 0);
+    private static final WorldArea START_AREA            = TutAreas.START_AREA;
+    private static final WorldArea SURVIVAL_AREA         = TutAreas.SURVIVAL_AREA;
+    private static final WorldArea COOKING_AREA          = TutAreas.COOKING_AREA;
+    private static final WorldArea QUEST_GUIDE_AREA      = TutAreas.QUEST_TUT_AREA;
     private static final WorldPoint COOKING_AREA_WALK_TILE = new WorldPoint(3074, 3087, 0);
     private static final WorldPoint QUEST_GUIDE_WALK_TILE = new WorldPoint(3085, 3121, 0);
-    private static final WorldArea MINING_SMITHING_AREA  = new WorldArea(3073, 9494, 15, 15, 0);
-    private static final WorldArea COMBAT_INSTRUCTOR_AREA= new WorldArea(3103, 9507,  6,  3, 0);
-    private static final WorldArea RAT_PIT_AREA          = new WorldArea(3097, 9514, 12,  9, 0);
-    private static final WorldArea TUT_ISLAND_BANK_AREA  = new WorldArea(3120, 3118, 12, 10, 0);
-    private static final WorldArea CHURCH_AREA           = new WorldArea(3120, 3103, 14, 14, 0);
-    private static final WorldArea TUTORIAL_END_AREA     = new WorldArea(3134, 3084, 14, 14, 0);
+    private static final WorldArea MINING_SMITHING_AREA  = TutAreas.MINING_SMITHING_AREA;
+    private static final WorldArea COMBAT_INSTRUCTOR_AREA= TutAreas.COMBAT_INSTRUCTOR_AREA;
+    private static final WorldArea RAT_PIT_AREA          = TutAreas.RAT_PIT_AREA;
+    private static final WorldArea TUT_ISLAND_BANK_AREA  = TutAreas.TUT_ISLAND_BANK_AREA;
+    private static final WorldArea CHURCH_AREA           = TutAreas.CHURCH_AREA;
+    private static final WorldArea TUTORIAL_END_AREA     = TutAreas.TUTORIAL_END_AREA;
 
     private long lastNameAttemptAtMs;
     private String lastGeneratedName = "None";
@@ -256,17 +260,7 @@ public class TutorialIslandScript extends Script
 
     private static boolean isTutorialIslandLocation(WorldPoint location)
     {
-        return location != null
-                && (START_AREA.contains(location)
-                || SURVIVAL_AREA.contains(location)
-                || COOKING_AREA.contains(location)
-                || QUEST_GUIDE_AREA.contains(location)
-                || MINING_SMITHING_AREA.contains(location)
-                || COMBAT_INSTRUCTOR_AREA.contains(location)
-                || RAT_PIT_AREA.contains(location)
-                || TUT_ISLAND_BANK_AREA.contains(location)
-                || CHURCH_AREA.contains(location)
-                || TUTORIAL_END_AREA.contains(location));
+        return TutAreas.contains(location);
     }
 
     public boolean isComplete()
@@ -528,7 +522,7 @@ public class TutorialIslandScript extends Script
 
     private void gettingStarted()
     {
-        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.GIELINOR_GUIDE).nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().fromWorldView().withId(NpcID.GIELINOR_GUIDE).nearest();
         int progress = Microbot.getVarbitPlayerValue(281);
 
         if (progress < 3)
@@ -543,28 +537,17 @@ public class TutorialIslandScript extends Script
             return;
         }
 
-        if (progress < 8)
-        {
-            if (!toggledSettings)
-            {
-                Rs2Widget.clickWidget(164, 41);
-                toggledSettings = true;
-                Rs2Random.waitEx(1200, 300);
-                return;
-            }
-
-            Rs2Camera.setZoom(Rs2Random.between(400, 450));
-            Rs2Random.waitEx(300, 100);
-            Rs2Camera.setPitch(280);
-            sleepUntil(() -> Rs2Camera.getPitch() > 250);
-        }
-
         walkAndTalk(npc);
     }
 
     private void survivalGuide()
     {
         int progress = Microbot.getVarbitPlayerValue(281);
+
+        if (!toggledSettings && configureCameraAfterGielinorGuide())
+        {
+            return;
+        }
 
         if (progress == 10 || progress == 20 || progress == 60)
         {
@@ -612,6 +595,86 @@ public class TutorialIslandScript extends Script
         }
     }
 
+    private boolean configureCameraAfterGielinorGuide()
+    {
+        if (isInDialogue() || hasContinue())
+        {
+            if (hasContinue())
+            {
+                clickContinue();
+            }
+            return true;
+        }
+
+        if (Rs2Tab.getCurrentTab() != InterfaceTab.SETTINGS)
+        {
+            Rs2Tab.switchTo(InterfaceTab.SETTINGS);
+            Rs2Random.waitEx(1200, 300);
+            return true;
+        }
+
+        Rs2Camera.setZoom(Rs2Random.between(400, 450));
+        Rs2Random.waitEx(300, 100);
+        Rs2Camera.setPitch(280);
+        sleepUntil(() -> Rs2Camera.getPitch() > 250);
+        toggledSettings = true;
+        return true;
+    }
+
+    private boolean openCookingGate()
+    {
+        BooleanSupplier gatePassed = () -> Microbot.getVarbitPlayerValue(281) != 120 || isInArea(COOKING_AREA);
+
+        if (gatePassed.getAsBoolean())
+        {
+            return true;
+        }
+
+        if (clickNearestTutorialObject(ObjectID.GATE_9470, "Open"))
+        {
+            sleepUntil(gatePassed::getAsBoolean, 1_500);
+        }
+
+        if (gatePassed.getAsBoolean())
+        {
+            return true;
+        }
+
+        walkTutorialLocal(COOKING_AREA_WALK_TILE, 3);
+        sleepUntil(gatePassed::getAsBoolean, 1_500);
+        return gatePassed.getAsBoolean();
+    }
+
+    private boolean walkToAccountGuideRoomAndTalk(Rs2NpcModel npc)
+    {
+        if (npc == null || npc.getWorldLocation() == null)
+        {
+            return false;
+        }
+
+        if (npc.click("Talk-to"))
+        {
+            sleepUntil(Rs2Dialogue::isInDialogue, 5_000);
+            return true;
+        }
+
+        /*
+         * The Account Guide can be close by tile distance while still separated by
+         * the room wall. If the direct click fails, force the local walker into the
+         * guide's room instead of treating "nearby" as reachable.
+         */
+        walkTutorialLocal(npc.getWorldLocation(), 1);
+        Rs2Player.waitForWalking();
+
+        if (npc.click("Talk-to"))
+        {
+            sleepUntil(Rs2Dialogue::isInDialogue, 5_000);
+            return true;
+        }
+
+        return false;
+    }
+
     private boolean talkToSurvivalExpert()
     {
         if (!walkToArea(SURVIVAL_AREA))
@@ -619,11 +682,11 @@ public class TutorialIslandScript extends Script
             return false;
         }
 
-        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.SURVIVAL_EXPERT).nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().fromWorldView().withId(NpcID.SURVIVAL_EXPERT).nearest();
 
         if (npc == null)
         {
-            npc = Microbot.getRs2NpcCache().query().withName("Survival Expert").nearest();
+            npc = Microbot.getRs2NpcCache().query().fromWorldView().withName("Survival Expert").nearest();
         }
 
         return walkAndTalk(npc, 4);
@@ -631,20 +694,20 @@ public class TutorialIslandScript extends Script
 
     private void cookingGuide()
     {
-        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.MASTER_CHEF).nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().fromWorldView().withId(NpcID.MASTER_CHEF).nearest();
         int progress = Microbot.getVarbitPlayerValue(281);
 
         if (progress == 120)
         {
             Rs2Keyboard.keyPress(KeyEvent.VK_ESCAPE);
-            Microbot.getRs2TileObjectCache().query().interact(ObjectID.GATE_9470, "Open");
-            sleepUntil(() -> Microbot.getVarbitPlayerValue(281) != 120);
+            openCookingGate();
         }
         else if (progress == 130)
         {
             if (!walkToArea(COOKING_AREA, COOKING_AREA_WALK_TILE)) return;
-            Microbot.getRs2TileObjectCache().query().interact(ObjectID.DOOR_9709, "Open");
-            sleepUntil(() -> Microbot.getVarbitPlayerValue(281) != 130);
+            openTutorialPassage(
+                    ObjectID.DOOR_9709,
+                    () -> Microbot.getVarbitPlayerValue(281) != 130);
         }
         else if (progress == 140)
         {
@@ -660,11 +723,15 @@ public class TutorialIslandScript extends Script
             else if (Rs2Inventory.contains("Bread dough"))
             {
                 Rs2Inventory.interact("Bread dough");
-                Microbot.getRs2TileObjectCache().query().interact(9736, "Use");
+                Microbot.getRs2TileObjectCache().query().fromWorldView().interact(9736, "Use");
                 sleepUntil(() -> Rs2Inventory.contains("Bread"));
             }
             else if (Rs2Inventory.contains("Bread")
-                    && Microbot.getRs2TileObjectCache().query().interact(9710, "Open"))
+                    && openTutorialPassageAndWalk(
+                            9710,
+                            QUEST_GUIDE_WALK_TILE,
+                            3,
+                            () -> Microbot.getVarbitPlayerValue(281) >= 200))
             {
                 Rs2Random.waitEx(2400, 100);
             }
@@ -673,13 +740,19 @@ public class TutorialIslandScript extends Script
 
     private void questGuide()
     {
-        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.QUEST_GUIDE).nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().fromWorldView().withId(NpcID.QUEST_GUIDE).nearest();
         int progress = Microbot.getVarbitPlayerValue(281);
 
         if (progress == 200 || progress == 210)
         {
-            if (!walkToArea(QUEST_GUIDE_AREA, QUEST_GUIDE_WALK_TILE)) return;
-            Microbot.getRs2TileObjectCache().query().interact(9716, "Open");
+            if (!walkToQuestGuideDoorTile())
+            {
+                return;
+            }
+
+            openTutorialPassage(
+                    9716,
+                    () -> Microbot.getVarbitPlayerValue(281) >= 220 || isNpcReachable(npc, 4));
             Rs2Random.waitEx(1200, 300);
         }
         else if (progress == 220 || progress == 240)
@@ -694,18 +767,39 @@ public class TutorialIslandScript extends Script
         {
             Rs2Tab.switchTo(InterfaceTab.INVENTORY);
             Rs2Random.waitEx(600, 100);
-            Microbot.getRs2TileObjectCache().query().interact(9726, "Climb-down");
+            Microbot.getRs2TileObjectCache().query().fromWorldView().interact(9726, "Climb-down");
             Rs2Random.waitEx(2400, 100);
         }
     }
 
+    private boolean walkToQuestGuideDoorTile()
+    {
+        WorldPoint location = Rs2Player.getWorldLocation();
+
+        if (location != null && location.distanceTo(QUEST_GUIDE_WALK_TILE) <= 1)
+        {
+            KspWalkerGuard.clearActiveWalker("ksp_account_builder_tutorial_quest_door");
+            return true;
+        }
+
+        walkTutorialLocal(QUEST_GUIDE_WALK_TILE, 1);
+        location = Rs2Player.getWorldLocation();
+        if (location != null && location.distanceTo(QUEST_GUIDE_WALK_TILE) <= 1)
+        {
+            KspWalkerGuard.clearActiveWalker("ksp_account_builder_tutorial_quest_door");
+            return true;
+        }
+
+        return false;
+    }
+
     private void miningGuide()
     {
-        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.MINING_INSTRUCTOR).nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().fromWorldView().withId(NpcID.MINING_INSTRUCTOR).nearest();
 
         if (Microbot.getVarbitPlayerValue(281) == 260)
         {
-            Rs2Walker.walkTo(new WorldPoint(3082, 9505, 0), 2);
+            walkTutorialLocal(new WorldPoint(3082, 9505, 0), 2);
             Rs2Player.waitForWalking();
             walkAndTalk(npc);
             return;
@@ -713,15 +807,18 @@ public class TutorialIslandScript extends Script
 
         if (Rs2Inventory.contains("Bronze dagger"))
         {
-            Microbot.getRs2TileObjectCache().query().interact(ObjectID.GATE_9718, "Open");
-            sleepUntil(() -> Microbot.getVarbitPlayerValue(281) > 360);
+            openTutorialPassageAndWalk(
+                    ObjectID.GATE_9718,
+                    new WorldPoint(3107, 9509, 0),
+                    3,
+                    () -> Microbot.getVarbitPlayerValue(281) > 360 || isInArea(COMBAT_INSTRUCTOR_AREA));
             return;
         }
 
         if (Rs2Inventory.contains("Bronze bar") && Rs2Inventory.contains("Hammer"))
         {
             Microbot.getClientThread().invoke(() ->
-                    Microbot.getRs2TileObjectCache().query().withName("Anvil").interact("Smith"));
+                    Microbot.getRs2TileObjectCache().query().fromWorldView().withName("Anvil").interact("Smith"));
             sleepUntil(Rs2Widget::isSmithingWidgetOpen);
             Rs2Widget.clickWidget(312, 9);
             Rs2Random.waitEx(1200, 300);
@@ -751,7 +848,7 @@ public class TutorialIslandScript extends Script
             Collections.shuffle(rockIds);
             int rockId = rockIds.get(0);
 
-            Microbot.getRs2TileObjectCache().query().interact(rockId, "Mine");
+            Microbot.getRs2TileObjectCache().query().fromWorldView().interact(rockId, "Mine");
             sleepUntil(() -> rockId == ObjectID.COPPER_ROCKS
                     ? Rs2Inventory.contains("Copper ore") && !Rs2Player.isAnimating(1800)
                     : Rs2Inventory.contains("Tin ore") && !Rs2Player.isAnimating(1800));
@@ -767,7 +864,7 @@ public class TutorialIslandScript extends Script
 
     private void combatGuide()
     {
-        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.COMBAT_INSTRUCTOR).nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().fromWorldView().withId(NpcID.COMBAT_INSTRUCTOR).nearest();
         int progress = Microbot.getVarbitPlayerValue(281);
 
         if (progress <= 370)
@@ -793,10 +890,10 @@ public class TutorialIslandScript extends Script
         }
         else if (progress == 500)
         {
-            Rs2Walker.walkTo(new WorldPoint(3111, 9526, Rs2Player.getWorldLocation().getPlane()));
+            walkTutorialLocal(new WorldPoint(3111, 9526, Rs2Player.getWorldLocation().getPlane()), 3);
             Rs2Player.waitForWalking();
             Microbot.getClientThread().invoke(() ->
-                    Microbot.getRs2TileObjectCache().query().withName("Ladder").interact("Climb-up"));
+                    Microbot.getRs2TileObjectCache().query().fromWorldView().withName("Ladder").interact("Climb-up"));
             sleepUntil(() -> Microbot.getVarbitPlayerValue(281) != 500);
         }
         else if (progress == 480 || progress == 490)
@@ -821,7 +918,7 @@ public class TutorialIslandScript extends Script
         }
         else if (progress == 470)
         {
-            Rs2Walker.walkTo(new WorldPoint(3108, 9508, 0), 2);
+            walkTutorialLocal(new WorldPoint(3108, 9508, 0), 2);
             Rs2Player.waitForWalking();
             walkAndTalk(npc);
         }
@@ -842,6 +939,11 @@ public class TutorialIslandScript extends Script
             }
             if (Rs2Equipment.isWearing("Bronze sword"))
             {
+                if (!ensureInsideRatPen())
+                {
+                    return;
+                }
+
                 walkAndAttackRat();
             }
             else if (Rs2Inventory.hasItem("Bronze sword"))
@@ -861,7 +963,7 @@ public class TutorialIslandScript extends Script
 
     private void bankerGuide()
     {
-        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.ACCOUNT_GUIDE).nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().fromWorldView().withId(NpcID.ACCOUNT_GUIDE).nearest();
         int progress = Microbot.getVarbitPlayerValue(281);
 
         if (progress == 510)
@@ -869,9 +971,9 @@ public class TutorialIslandScript extends Script
             // Use a specific walkable tile near the bank entrance — randomPoint() can land on
             // unreachable counter/wall tiles inside the bank building (seen at 3128,3118).
             WorldPoint bankEntrance = new WorldPoint(3120, 3124, 0);
-            Rs2Walker.walkTo(bankEntrance, 5);
+            walkTutorialLocal(bankEntrance, 5);
             Rs2Player.waitForWalking();
-            Microbot.getRs2TileObjectCache().query().interact(ObjectID.BANK_BOOTH_10083);
+            Microbot.getRs2TileObjectCache().query().fromWorldView().interact(ObjectID.BANK_BOOTH_10083);
             sleepUntil(() -> Microbot.getVarbitPlayerValue(281) != 510);
         }
         else if (progress == 520)
@@ -883,9 +985,7 @@ public class TutorialIslandScript extends Script
             closePollOrOptionsWidget();
             if (npc != null)
             {
-                Rs2Walker.walkTo(npc.getWorldLocation(), 3);
-                Rs2Player.waitForWalking();
-                walkAndTalk(npc);
+                walkToAccountGuideRoomAndTalk(npc);
             }
         }
         else if (progress == 531)
@@ -905,12 +1005,12 @@ public class TutorialIslandScript extends Script
 
     private void prayerGuide()
     {
-        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.BROTHER_BRACE).nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().fromWorldView().withId(NpcID.BROTHER_BRACE).nearest();
         int progress = Microbot.getVarbitPlayerValue(281);
 
         if (progress == 640 || progress == 550 || progress == 540)
         {
-            Rs2Walker.walkTo(new WorldPoint(3125, 3106, 0), 3);
+            walkTutorialLocal(new WorldPoint(3125, 3106, 0), 3);
             Rs2Player.waitForWalking();
             walkAndTalk(npc);
         }
@@ -934,12 +1034,12 @@ public class TutorialIslandScript extends Script
 
     private void mageGuide()
     {
-        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().withId(NpcID.MAGIC_INSTRUCTOR).nearest();
+        Rs2NpcModel npc = Microbot.getRs2NpcCache().query().fromWorldView().withId(NpcID.MAGIC_INSTRUCTOR).nearest();
         int progress = Microbot.getVarbitPlayerValue(281);
 
         if (progress == 610 || progress == 620)
         {
-            Rs2Walker.walkTo(new WorldPoint(3142, 3089, 0), 3);
+            walkTutorialLocal(new WorldPoint(3142, 3089, 0), 3);
             Rs2Player.waitForWalking();
             walkAndTalk(npc);
         }
@@ -955,14 +1055,25 @@ public class TutorialIslandScript extends Script
         {
             widgetCast();
         }
-        else if (progress >= 680)
+        else if (progress == 680)
         {
             if (isInDialogue())
             {
                 handleFinalMageDialogue();
                 return;
             }
-            castHomeTeleport();
+
+            castLumbridgeHomeTeleport();
+        }
+        else if (progress > 680)
+        {
+            if (isInDialogue())
+            {
+                handleFinalMageDialogue();
+                return;
+            }
+
+            walkAndTalk(npc);
         }
         else if (progress >= 660)
         {
@@ -989,7 +1100,7 @@ public class TutorialIslandScript extends Script
         Rs2Dialogue.clickContinue();
     }
 
-    private boolean castHomeTeleport()
+    private boolean castLumbridgeHomeTeleport()
     {
         if (Rs2Tab.getCurrentTab() != InterfaceTab.MAGIC)
         {
@@ -1010,11 +1121,11 @@ public class TutorialIslandScript extends Script
         }
 
         Rs2Widget.clickWidget(homeTeleport);
-        sleepUntil(() -> {
-            WorldPoint point = Rs2Player.getWorldLocation();
-            return point != null && point.getX() >= 3200;
+        return sleepUntil(() -> {
+            WorldPoint location = Rs2Player.getWorldLocation();
+            return Microbot.getVarbitPlayerValue(281) >= 1000
+                    || (location != null && !TutAreas.contains(location));
         }, 15_000);
-        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -1273,10 +1384,26 @@ public class TutorialIslandScript extends Script
             return false;
         }
 
-        if (playerLocation.distanceTo(npcLocation) > reach)
+        if (npc.click(action))
         {
-            Rs2Walker.walkTo(npcLocation, reach);
-            Rs2Player.waitForWalking();
+            if (afterClick != null)
+            {
+                afterClick.run();
+            }
+            return true;
+        }
+
+        if (playerLocation.distanceTo(npcLocation) <= reach)
+        {
+            return false;
+        }
+
+        walkTutorialLocal(npcLocation, reach);
+        Rs2Player.waitForWalking();
+        playerLocation = Rs2Player.getWorldLocation();
+
+        if (playerLocation == null || playerLocation.distanceTo(npcLocation) > reach)
+        {
             return false;
         }
 
@@ -1301,14 +1428,22 @@ public class TutorialIslandScript extends Script
         WorldPoint insidePen = new WorldPoint(3102, 9518, 0);
         WorldPoint playerLocation = Rs2Player.getWorldLocation();
 
+        if (playerLocation == null || !RAT_PIT_AREA.contains(playerLocation))
+        {
+            if (!ensureInsideRatPen())
+            {
+                return false;
+            }
+            playerLocation = Rs2Player.getWorldLocation();
+        }
+
         if (playerLocation == null || playerLocation.distanceTo(insidePen) > 3)
         {
-            Rs2Walker.walkTo(insidePen, 2);
-            Rs2Player.waitForWalking();
+            walkTutorialLocal(insidePen, 2);
             return false;
         }
 
-        Rs2NpcModel rat = Microbot.getRs2NpcCache().query().withName("Giant rat").nearest();
+        Rs2NpcModel rat = Microbot.getRs2NpcCache().query().fromWorldView().withName("Giant rat").nearest();
         if (rat == null || rat.getWorldLocation() == null)
         {
             return false;
@@ -1316,9 +1451,26 @@ public class TutorialIslandScript extends Script
         return rat.click("Attack");
     }
 
+    private boolean ensureInsideRatPen()
+    {
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        WorldPoint insidePen = new WorldPoint(3102, 9518, 0);
+
+        if (playerLocation != null && RAT_PIT_AREA.contains(playerLocation))
+        {
+            return true;
+        }
+
+        return openTutorialPassageAndWalk(
+                9719,
+                insidePen,
+                2,
+                () -> isInArea(RAT_PIT_AREA));
+    }
+
     private boolean attackNearestRat()
     {
-        Rs2NpcModel rat = Microbot.getRs2NpcCache().query().withName("Giant rat").nearest();
+        Rs2NpcModel rat = Microbot.getRs2NpcCache().query().fromWorldView().withName("Giant rat").nearest();
 
         if (rat == null)
         {
@@ -1379,13 +1531,13 @@ public class TutorialIslandScript extends Script
     private void cutTree()
     {
         Microbot.getClientThread().invoke(() ->
-                Microbot.getRs2TileObjectCache().query().withName("Tree").interact("Chop down"));
+                Microbot.getRs2TileObjectCache().query().fromWorldView().withName("Tree").interact("Chop down"));
         sleepUntil(() -> Rs2Inventory.hasItem("Logs") && !Rs2Player.isAnimating(2400));
     }
 
     private void fishShrimp()
     {
-        Microbot.getRs2NpcCache().query().withId(NpcID.FISHING_SPOT_3317).interact("Net");
+        Microbot.getRs2NpcCache().query().fromWorldView().withId(NpcID.FISHING_SPOT_3317).interact("Net");
         sleepUntil(() -> Rs2Inventory.contains(false, "shrimps"));
     }
 
@@ -1397,14 +1549,14 @@ public class TutorialIslandScript extends Script
         }
 
         Rs2Random.waitEx(240, 80);
-        Microbot.getRs2TileObjectCache().query().withId(ObjectID.FIRE_26185).interact("Use");
+        Microbot.getRs2TileObjectCache().query().fromWorldView().withId(ObjectID.FIRE_26185).interact("Use");
         sleepUntil(() -> !Rs2Inventory.hasItem(ItemID.RAW_SHRIMPS_2514)
                 || Microbot.getVarbitPlayerValue(281) > 90, 5000);
     }
 
     private boolean hasNearbyFire()
     {
-        return Microbot.getRs2TileObjectCache().query().withId(ObjectID.FIRE_26185).nearest() != null;
+        return Microbot.getRs2TileObjectCache().query().fromWorldView().withId(ObjectID.FIRE_26185).nearest() != null;
     }
 
     // -------------------------------------------------------------------------
@@ -1469,7 +1621,7 @@ public class TutorialIslandScript extends Script
         Rs2Widget.clickWidget(windStrike);
         Rs2Random.waitEx(150, 50);
 
-        Rs2NpcModel chicken = Microbot.getRs2NpcCache().query().withName("chicken").nearestOnClientThread();
+        Rs2NpcModel chicken = Microbot.getRs2NpcCache().query().fromWorldView().withName("chicken").nearestOnClientThread();
 
         if (chicken == null)
         {
@@ -1530,6 +1682,11 @@ public class TutorialIslandScript extends Script
 
     private void handleBankSpaceAndPollBooth()
     {
+        if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait())
+        {
+            return;
+        }
+
         if (Rs2Widget.isWidgetVisible(928, 4))
         {
             Rs2Widget.clickWidget(928, 4);
@@ -1559,7 +1716,7 @@ public class TutorialIslandScript extends Script
 
         Rs2Bank.closeBank();
         sleepUntil(() -> !Rs2Bank.isOpen());
-        Microbot.getRs2TileObjectCache().query().interact(26815);
+        Microbot.getRs2TileObjectCache().query().fromWorldView().interact(26815);
         sleepUntil(() -> Microbot.getVarbitPlayerValue(281) != 520 || Rs2Widget.isWidgetVisible(928, 4));
     }
 
@@ -1617,9 +1774,113 @@ public class TutorialIslandScript extends Script
             return true;
         }
 
-        Rs2Walker.walkTo(target, 3);
+        walkTutorialLocal(target, 3);
         Rs2Player.waitForWalking();
+
+        location = Rs2Player.getWorldLocation();
+        if (location != null && area.contains(location))
+        {
+            KspWalkerGuard.clearActiveWalker("ksp_account_builder_tutorial_reached_area");
+            return true;
+        }
+
         return false;
+    }
+
+    private void walkTutorialLocal(WorldPoint target, int reach)
+    {
+        if (target == null)
+        {
+            return;
+        }
+
+        KspWalkerGuard.clear("Tutorial Island:local-walk");
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+
+        if (playerLocation != null && playerLocation.distanceTo(target) <= reach)
+        {
+            return;
+        }
+
+        Rs2Walker.walkTo(target, reach);
+        Rs2Player.waitForWalking();
+    }
+
+    private boolean openTutorialPassage(int objectId, BooleanSupplier completed)
+    {
+        return openTutorialPassageAndWalk(objectId, null, 0, completed);
+    }
+
+    private boolean clickNearestTutorialObject(int objectId, String action)
+    {
+        Rs2TileObjectModel object = Microbot.getRs2TileObjectCache()
+                .query()
+                .fromWorldView()
+                .withId(objectId)
+                .nearest();
+
+        if (object != null && object.click(action))
+        {
+            return true;
+        }
+
+        return Microbot.getRs2TileObjectCache()
+                .query()
+                .fromWorldView()
+                .interact(objectId, action);
+    }
+
+    private boolean openTutorialPassageAndWalk(int objectId, WorldPoint target, int reach, BooleanSupplier completed)
+    {
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            if (completed.getAsBoolean())
+            {
+                return true;
+            }
+
+            boolean interacted = Microbot.getRs2TileObjectCache()
+                    .query()
+                    .fromWorldView()
+                    .interact(objectId, "Open");
+
+            if (interacted)
+            {
+                sleepUntil(() -> completed.getAsBoolean(), 1200);
+            }
+            else
+            {
+                Rs2Random.waitEx(300, 100);
+            }
+
+            if (completed.getAsBoolean())
+            {
+                return true;
+            }
+
+            if (target != null)
+            {
+                walkTutorialLocal(target, reach);
+                sleepUntil(() -> completed.getAsBoolean(), 1200);
+            }
+        }
+
+        return completed.getAsBoolean();
+    }
+
+    private boolean isInArea(WorldArea area)
+    {
+        WorldPoint location = Rs2Player.getWorldLocation();
+        return location != null && area.contains(location);
+    }
+
+    private boolean isNpcReachable(Rs2NpcModel npc, int reach)
+    {
+        WorldPoint location = Rs2Player.getWorldLocation();
+        return npc != null
+                && npc.getWorldLocation() != null
+                && location != null
+                && npc.getWorldLocation().distanceTo(location) <= reach;
     }
 
     private WorldPoint randomPoint(WorldArea area)
@@ -1746,3 +2007,4 @@ public class TutorialIslandScript extends Script
         FINISHED
     }
 }
+

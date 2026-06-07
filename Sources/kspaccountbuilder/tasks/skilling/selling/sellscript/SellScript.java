@@ -45,7 +45,8 @@ import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
-import net.runelite.client.plugins.microbot.api.npc.models.Rs2NpcModel;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspGrandExchangeHelper;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.questing.cooksassistant.reqs.Items;
@@ -225,6 +226,9 @@ extends Script {
                 Rs2Bank.hasWithdrawAsNote(),
                 this.hasSellableBankItems(),
                 Rs2Inventory.isEmpty());
+        if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait()) {
+            return;
+        }
         if (!Rs2Inventory.isEmpty()) {
             Rs2Bank.depositAll();
             SellScript.sleepUntil(Rs2Inventory::isEmpty, (int)3000);
@@ -585,45 +589,21 @@ extends Script {
         }
         if (Rs2Bank.isOpen()) {
             Microbot.status = "Closing Bank";
-            Rs2Bank.closeBank();
+            KspGrandExchangeHelper.closeBankBeforeExchange();
             SellScript.sleepUntil(() -> !Rs2Bank.isOpen(), (int)2000);
             return false;
         }
         Microbot.status = "Opening GE";
         this.debug("Opening GE for sell task | player={} bankOpen={} geOpen={}", Rs2Player.getWorldLocation(), Rs2Bank.isOpen(), Rs2GrandExchange.isOpen());
-        if (Rs2GrandExchange.openExchange()) {
+        if (KspGrandExchangeHelper.openExchangeDirectly()) {
             SellScript.sleepUntil(Rs2GrandExchange::isOpen, (int)3000);
             return Rs2GrandExchange.isOpen();
         }
-        if (this.interactGrandExchangeClerk()) {
+        if (KspGrandExchangeHelper.interactClerk()) {
             SellScript.sleepUntil(Rs2GrandExchange::isOpen, (int)3000);
             return Rs2GrandExchange.isOpen();
         }
         return false;
-    }
-
-    private boolean interactGrandExchangeClerk() {
-        Rs2NpcModel clerk = Microbot.getClientThread().invoke(() -> Microbot.getRs2NpcCache().query()
-                .fromWorldView()
-                .withName("Grand Exchange Clerk")
-                .nearestReachable(15));
-        if (clerk == null) {
-            this.debug("Grand Exchange clerk not found for sell task | player={} area={}", Rs2Player.getWorldLocation(), this.targetArea.getDisplayName());
-            return false;
-        }
-
-        boolean clicked = clerk.click("Exchange");
-        if (!clicked) {
-            clicked = clerk.click("Trade");
-        }
-        this.debug("Grand Exchange clerk interaction | clicked={} npc={} id={} loc={} player={} geOpen={}",
-                clicked,
-                clerk.getName(),
-                clerk.getId(),
-                clerk.getWorldLocation(),
-                Rs2Player.getWorldLocation(),
-                Rs2GrandExchange.isOpen());
-        return clicked;
     }
 
     private boolean placeFallbackSellOffer(Rs2ItemModel item) {

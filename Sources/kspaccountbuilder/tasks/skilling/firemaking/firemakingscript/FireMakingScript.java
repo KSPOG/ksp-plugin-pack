@@ -14,6 +14,7 @@ import net.runelite.client.plugins.microbot.api.tileobject.models.Rs2TileObjectM
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspBankMode;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.fmarea.FireArea;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.loglevels.LogsLvl;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.buyscript.Buy;
@@ -210,6 +211,11 @@ public class FireMakingScript extends Script
     private boolean prepareSuppliesFromBank(String targetLogName, boolean hasActiveFire)
     {
         if (!Rs2Bank.isOpen())
+        {
+            return false;
+        }
+
+        if (KspBankWidgetHelper.closeBankTutorialOverlayIfOpenAndWait())
         {
             return false;
         }
