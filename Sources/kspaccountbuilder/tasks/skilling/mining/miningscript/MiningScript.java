@@ -47,6 +47,10 @@ public class MiningScript extends Script
     private static final int ROCK_SEARCH_PADDING_TILES = 8;
     private static final int OUT_OF_AREA_ROCK_FALLBACK_RADIUS = 4;
     private static final int MID_TIER_RANDOM_MAX_LEVEL = 60;
+    private static final int MUGGER_COMBAT_LEVEL = 6;
+    private static final int RAT_COMBAT_LEVEL = 6;
+    private static final int SILVER_SAFE_COMBAT_LEVEL = (MUGGER_COMBAT_LEVEL * 2) + 1;
+    private static final int IRON_SAFE_COMBAT_LEVEL = (RAT_COMBAT_LEVEL * 2) + 1;
     private static final String COPPER_ORE_NAME = Buy.COPPER_ORE_NAME;
     private static final String TIN_ORE_NAME = Buy.TIN_ORE_NAME;
     private static final int[] COPPER_ROCK_IDS = {
@@ -174,6 +178,24 @@ public class MiningScript extends Script
                 closeBankIfOpen();
                 Microbot.status = "No pickaxe available";
                 debug("No pickaxe available in inventory or equipment, waiting before proceeding");
+                return;
+            }
+
+            if (targetArea == Areas.SILVER_VARROCK_WEST && !canMineSilverSafely())
+            {
+                KspWalkerGuard.clearActiveWalker("ksp_account_builder_silver_mugger_guard");
+                KspWalkerGuard.clear("Mining:target-area");
+                walkingToTargetArea = false;
+                Microbot.status = "Waiting for Mugger to become passive";
+                return;
+            }
+
+            if (targetArea == Areas.IRON_VARROCK_EAST && !canMineIronSafely())
+            {
+                KspWalkerGuard.clearActiveWalker("ksp_account_builder_iron_rat_guard");
+                KspWalkerGuard.clear("Mining:target-area");
+                walkingToTargetArea = false;
+                Microbot.status = "Waiting for Rat to become passive";
                 return;
             }
 
@@ -904,12 +926,17 @@ public class MiningScript extends Script
 
         if (miningLevel >= RockLevel.SILVER.getRequiredMiningLevel())
         {
-            return RockLevel.SILVER;
+            if (canMineSilverSafely())
+            {
+                return RockLevel.SILVER;
+            }
+
+            return canMineIronSafely() ? RockLevel.IRON : null;
         }
 
         if (miningLevel >= RockLevel.IRON.getRequiredMiningLevel())
         {
-            return RockLevel.IRON;
+            return canMineIronSafely() ? RockLevel.IRON : null;
         }
 
         return null;
@@ -930,11 +957,23 @@ public class MiningScript extends Script
 
         if (shouldRandomizeMidTierRock(miningLevel))
         {
-            List<RockLevel> randomOptions = Arrays.asList(
-                    RockLevel.IRON,
-                    RockLevel.SILVER,
-                    RockLevel.COAL
-            );
+            List<RockLevel> randomOptions;
+            if (canMineIronSafely() && canMineSilverSafely())
+            {
+                randomOptions = Arrays.asList(RockLevel.IRON, RockLevel.SILVER, RockLevel.COAL);
+            }
+            else if (canMineIronSafely())
+            {
+                randomOptions = Arrays.asList(RockLevel.IRON, RockLevel.COAL);
+            }
+            else if (canMineSilverSafely())
+            {
+                randomOptions = Arrays.asList(RockLevel.SILVER, RockLevel.COAL);
+            }
+            else
+            {
+                randomOptions = Arrays.asList(RockLevel.COAL);
+            }
 
             randomMidTierRock = randomOptions.get(ThreadLocalRandom.current().nextInt(randomOptions.size()));
 
@@ -946,6 +985,50 @@ public class MiningScript extends Script
         }
 
         startingTargetRockInitialized = true;
+    }
+
+    private boolean canMineSilverSafely()
+    {
+        int combatLevel = getCombatLevel();
+        boolean safe = combatLevel >= SILVER_SAFE_COMBAT_LEVEL;
+
+        if (!safe)
+        {
+            KspTaskDebug.throttled(log, debugLogging, "Mining", "silver-mugger-guard", 10_000L,
+                    "skipping silver until Mugger becomes passive | requiredCombat={} currentCombat={} muggerCombat={}",
+                    SILVER_SAFE_COMBAT_LEVEL,
+                    combatLevel,
+                    MUGGER_COMBAT_LEVEL);
+        }
+
+        return safe;
+    }
+
+    private boolean canMineIronSafely()
+    {
+        int combatLevel = getCombatLevel();
+        boolean safe = combatLevel >= IRON_SAFE_COMBAT_LEVEL;
+
+        if (!safe)
+        {
+            KspTaskDebug.throttled(log, debugLogging, "Mining", "iron-rat-guard", 10_000L,
+                    "skipping iron until Rat becomes passive | requiredCombat={} currentCombat={} ratCombat={}",
+                    IRON_SAFE_COMBAT_LEVEL,
+                    combatLevel,
+                    RAT_COMBAT_LEVEL);
+        }
+
+        return safe;
+    }
+
+    private int getCombatLevel()
+    {
+        if (Microbot.getClient() == null || Microbot.getClient().getLocalPlayer() == null)
+        {
+            return 0;
+        }
+
+        return Microbot.getClient().getLocalPlayer().getCombatLevel();
     }
 
     private RockLevel getStarterRockToMine()

@@ -119,7 +119,18 @@ public final class Buy
                 || hasFishingBuyRequirementMissingInBank()
                 || isCraftingBuyMissingInBank()
                 || isJewelleryBuyMissingInBank()
+                || isMeleeFoodBuyMissing()
                 || isSmithingOreBuyMissingAnywhere();
+    }
+
+    public static boolean isMeleeFoodBuyMissing()
+    {
+        int attackLevel = Microbot.getClient().getRealSkillLevel(Skill.ATTACK);
+        int strengthLevel = Microbot.getClient().getRealSkillLevel(Skill.STRENGTH);
+        int defenceLevel = Microbot.getClient().getRealSkillLevel(Skill.DEFENCE);
+        boolean trainingOnChickens = attackLevel < 15 || strengthLevel < 15 || defenceLevel < 15;
+
+        return !trainingOnChickens && getMeleeFoodCountAvailable() < MELEE_TARGET_FOOD_COUNT;
     }
 
     public static boolean hasFishingBuyRequirementMissingInBank()
@@ -334,7 +345,7 @@ public final class Buy
 
     public static Food getBestMeleeFoodInInventory()
     {
-        return Arrays.stream(Food.values())
+        return Arrays.stream(new Food[]{Food.TROUT, Food.SALMON})
                 .filter(food -> Rs2Inventory.itemQuantity(food.getItemId()) > 0)
                 .max(Comparator.comparingInt(Food::getHealAmount))
                 .orElse(null);
@@ -342,7 +353,7 @@ public final class Buy
 
     public static Food getBestMeleeFoodAvailableInBank()
     {
-        return Arrays.stream(Food.values())
+        return Arrays.stream(new Food[]{Food.TROUT, Food.SALMON})
                 .filter(food -> Rs2Bank.count(food.getItemId()) > 0)
                 .max(Comparator.comparingInt(Food::getHealAmount))
                 .orElse(null);
@@ -357,9 +368,16 @@ public final class Buy
 
     public static int getMeleeFoodCountInInventory()
     {
-        return Arrays.stream(Food.values())
+        return Arrays.stream(new Food[]{Food.TROUT, Food.SALMON})
                 .mapToInt(food -> Rs2Inventory.itemQuantity(food.getItemId()))
                 .sum();
+    }
+
+    public static int getMeleeFoodCountAvailable()
+    {
+        return getMeleeFoodCountInInventory()
+                + Math.max(0, Rs2Bank.count(Food.TROUT.getItemId()))
+                + Math.max(0, Rs2Bank.count(Food.SALMON.getItemId()));
     }
 
     private static void addIfPresent(List<String> items, String itemName)

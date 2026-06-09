@@ -63,12 +63,17 @@ public class WoodCuttingScript extends Script {
     private TreeLevel randomMidTierTree;
     private TreeAreas randomOakArea;
     private boolean debugLogging;
+    private boolean progressiveWoodcutting = true;
     private long lastWebWalkAtMs;
     private long lastObjectInteractionAtMs;
     private boolean walkingToTargetArea;
 
     public void setDebugLogging(boolean debugLogging) {
         this.debugLogging = debugLogging;
+    }
+
+    public void setProgressiveWoodcutting(boolean progressiveWoodcutting) {
+        this.progressiveWoodcutting = progressiveWoodcutting;
     }
 
     public boolean run(TreeAreas area) {
@@ -89,7 +94,9 @@ public class WoodCuttingScript extends Script {
 
             this.initializeStartingTargetTree(woodcuttingLevel);
 
-            TreeAreas desiredArea = this.resolveTargetArea(woodcuttingLevel);
+            TreeAreas desiredArea = this.progressiveWoodcutting
+                    ? this.resolveTargetArea(woodcuttingLevel)
+                    : this.targetArea;
             if (desiredArea != this.targetArea) {
                 this.targetArea = desiredArea;
                 this.clearTargetAreaWalkIfNeeded();
@@ -346,9 +353,9 @@ public class WoodCuttingScript extends Script {
 
         if (KspWalkerGuard.walkToDestination(
                 "Woodcutting:target-area",
-                this.targetArea::getRandomPoint,
+                this::getAreaCenter,
                 this.targetArea::contains,
-                3,
+                1,
                 WEB_WALK_COOLDOWN_MS)) {
             this.lastWebWalkAtMs = System.currentTimeMillis();
             this.walkingToTargetArea = true;
@@ -731,6 +738,19 @@ public class WoodCuttingScript extends Script {
     }
 
     private TreeLevel getTargetTreeLevel(int woodcuttingLevel) {
+        if (!this.progressiveWoodcutting) {
+            if (this.targetArea == TreeAreas.YEW_TREE_VARROCK_PALACE) {
+                return TreeLevel.YEW;
+            }
+            if (this.targetArea == TreeAreas.WILLOW_TREES_DRAYNOR) {
+                return TreeLevel.WILLOW;
+            }
+            if (OAK_AREAS.contains(this.targetArea)) {
+                return TreeLevel.OAK;
+            }
+            return TreeLevel.TREE;
+        }
+
         if (this.startingTargetTreeInitialized && this.randomMidTierTree != null) {
             return this.randomMidTierTree;
         }

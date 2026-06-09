@@ -198,14 +198,86 @@ public interface KspAccountBuilderConfig extends Config
     }
 
     @ConfigItem(
-            keyName = "singleSkillProgressive",
-            name = "Progressive",
-            description = "When training Mining only, automatically move to the best ore available for the current Mining level",
+            keyName = "singleSkillMiningTarget",
+            name = "Mining",
+            description = "Ore and mining location",
             position = 2,
             section = trainSingleSkillSection
     )
-    default boolean singleSkillProgressive()
+    default KspSingleSkillConfigTarget.Mining singleSkillMiningTarget()
     {
-        return true;
+        return KspSingleSkillConfigTarget.Mining.NONE;
+    }
+
+    @ConfigItem(
+            keyName = "singleSkillWoodcuttingTarget",
+            name = "Woodcutting",
+            description = "Tree type and woodcutting location",
+            position = 3,
+            section = trainSingleSkillSection
+    )
+    default KspSingleSkillConfigTarget.Woodcutting singleSkillWoodcuttingTarget()
+    {
+        return KspSingleSkillConfigTarget.Woodcutting.NONE;
+    }
+
+    @ConfigItem(
+            keyName = "singleSkillFishingTarget",
+            name = "Fishing",
+            description = "Fish and fishing location",
+            position = 4,
+            section = trainSingleSkillSection
+    )
+    default KspSingleSkillConfigTarget.Fishing singleSkillFishingTarget()
+    {
+        return KspSingleSkillConfigTarget.Fishing.NONE;
+    }
+
+    @ConfigItem(
+            keyName = "singleSkillCookingTarget",
+            name = "Cooking",
+            description = "Cooking location",
+            position = 5,
+            section = trainSingleSkillSection
+    )
+    default KspSingleSkillConfigTarget.Cooking singleSkillCookingTarget()
+    {
+        return KspSingleSkillConfigTarget.Cooking.NONE;
+    }
+
+    @ConfigItem(
+            keyName = "singleSkillMeleeTarget",
+            name = "Melee",
+            description = "NPC and combat location",
+            position = 6,
+            section = trainSingleSkillSection
+    )
+    default KspSingleSkillConfigTarget.Melee singleSkillMeleeTarget()
+    {
+        return KspSingleSkillConfigTarget.Melee.NONE;
+    }
+
+    @ConfigItem(
+            keyName = "singleSkillSmithingTarget",
+            name = "Smithing",
+            description = "Product to smith",
+            position = 7,
+            section = trainSingleSkillSection
+    )
+    default KspSingleSkillConfigTarget.Smithing singleSkillSmithingTarget()
+    {
+        return KspSingleSkillConfigTarget.Smithing.NONE;
+    }
+
+    @ConfigItem(
+            keyName = "singleSkillSmeltingTarget",
+            name = "Smelting",
+            description = "Bar to smelt",
+            position = 8,
+            section = trainSingleSkillSection
+    )
+    default KspSingleSkillConfigTarget.Smelting singleSkillSmeltingTarget()
+    {
+        return KspSingleSkillConfigTarget.Smelting.NONE;
     }
 }

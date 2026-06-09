@@ -4,10 +4,11 @@
 package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.sell;
 
 public enum SellList {
-    LOGS("Logs"),
-    OAK_LOGS("Oak logs"),
-    YEW_LOGS("Yew logs"),
-    COWHIDE("Cowhide"),
+    LOGS("Logs", false),
+    OAK_LOGS("Oak logs", true),
+    YEW_LOGS("Yew logs", true),
+    COWHIDE("Cowhide", true),
+    RAW_CHICKEN("Raw chicken"),
     LEATHER_GLOVES("Leather gloves"),
     GOLD_RING("Gold ring"),
     GOLD_NECKLACE("Gold necklace"),
@@ -22,7 +23,8 @@ public enum SellList {
     DIAMOND_NECKLACE("Diamond necklace"),
     SMALL_FISHING_NET("Small fishing net"),
     FISHING_ROD("Fishing rod"),
-    FISHING_BAIT("Fishing bait"),
+    FISHING_BAIT("Fishing bait", true),
+    SILVER_ORE("Silver ore", true),
     SILVER_BAR("Silver bar"),
     BRONZE_DAGGER("Bronze dagger"),
     BRONZE_SCIMITAR("Bronze scimitar"),
@@ -41,18 +43,28 @@ public enum SellList {
     MITHRIL_SWORD("Mithril sword"),
     STEEL_KITESHIELD("Steel kiteshield"),
     BLACK_SQ_SHIELD("Black sq shield"),
-    TUNA("Tuna"),
-    LOBSTER("Lobster"),
-    SWORDFISH("Swordfish"),
+    TUNA("Tuna", true),
+    LOBSTER("Lobster", true),
+    SWORDFISH("Swordfish", true),
     SPINACH_ROLL("Spinach roll");
 
     private final String displayName;
+    private final boolean tradeRestricted;
 
     public String getDisplayName() {
         return this.displayName;
     }
 
-    private SellList(String displayName) {
+    public boolean isTradeRestricted() {
+        return this.tradeRestricted;
+    }
+
+    SellList(String displayName) {
+        this(displayName, false);
+    }
+
+    SellList(String displayName, boolean tradeRestricted) {
         this.displayName = displayName;
+        this.tradeRestricted = tradeRestricted;
     }
 }

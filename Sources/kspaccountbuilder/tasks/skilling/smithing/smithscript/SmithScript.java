@@ -71,15 +71,23 @@ extends Script {
     private boolean walkingToTargetArea;
     private SmithArea targetArea = SmithArea.SMITH_AREA_VARROCK_WEST_ANVIL;
     private SmithRecipe targetRecipe = SmithRecipe.BRONZE_DAGGER;
+    private SmithLevels forcedSmithLevel;
 
     public void setDebugLogging(boolean debugLogging) {
         this.debugLogging = debugLogging;
     }
 
     public boolean run(SmithArea area) {
+        return this.run(area, null);
+    }
+
+    public boolean run(SmithArea area, SmithLevels forcedSmithLevel) {
         this.shutdown();
         this.targetArea = area;
-        this.targetRecipe = SmithRecipe.BRONZE_DAGGER;
+        this.forcedSmithLevel = forcedSmithLevel;
+        this.targetRecipe = forcedSmithLevel != null
+                ? this.resolveRecipe(forcedSmithLevel)
+                : SmithRecipe.BRONZE_DAGGER;
         this.expectingSmithXpDrop = false;
         this.mainScheduledFuture = this.scheduledExecutorService.scheduleWithFixedDelay(() -> {
             if (!super.run() || !Microbot.isLoggedIn()) {
@@ -116,6 +124,11 @@ extends Script {
     }
 
     private void selectTargetRecipe() {
+        if (this.forcedSmithLevel != null) {
+            this.targetRecipe = this.resolveRecipe(this.forcedSmithLevel);
+            return;
+        }
+
         int smithingLevel = Microbot.getClient().getRealSkillLevel(Skill.SMITHING);
         SmithRecipe bestRecipe = this.resolveBestCraftableRecipe(smithingLevel);
         if (bestRecipe == null) {

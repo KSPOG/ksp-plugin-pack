@@ -21,6 +21,7 @@ import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWid
 import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspGrandExchangeHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.food.Food;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.gearea.GEArea;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
@@ -60,6 +61,7 @@ public class BuyScript extends Script {
 
     private static final String HAMMER_NAME = Buy.HAMMER_NAME;
     private static final int HAMMER_ITEM_ID = Buy.HAMMER_ITEM_ID;
+    private static final int HAMMER_BUY_PRICE = 300;
     private static final String TINDERBOX_NAME = Buy.TINDERBOX_NAME;
     private static final String FISHING_BAIT_NAME = Buy.FISHING_BAIT_NAME;
     private static final int FISHING_BAIT_BUY_QUANTITY = Buy.FISHING_BAIT_BUY_QUANTITY;
@@ -69,6 +71,7 @@ public class BuyScript extends Script {
     private static final String FISHING_ROD_NAME = Buy.FISHING_ROD_NAME;
     private static final String FLY_FISHING_ROD_NAME = Buy.FLY_FISHING_ROD_NAME;
     private static final String HARPOON_NAME = Buy.HARPOON_NAME;
+    private static final int HARPOON_BUY_PRICE = 600;
     private static final String LOBSTER_POT_NAME = Buy.LOBSTER_POT_NAME;
     private static final String LEATHER_NAME = Buy.LEATHER_NAME;
     private static final String THREAD_NAME = Buy.THREAD_NAME;
@@ -80,8 +83,8 @@ public class BuyScript extends Script {
     private static final String TIARA_MOULD_NAME = Buy.TIARA_MOULD_NAME;
     private static final String BRONZE_SWORD_NAME = "Bronze sword";
     private static final String WOODEN_SHIELD_NAME = "Wooden shield";
-    private static final String SHRIMP_NAME = "Shrimp";
-    private static final int MELEE_SHRIMP_BANK_QUANTITY = 5;
+    private static final String TROUT_NAME = Food.TROUT.getDisplayName();
+    private static final String SALMON_NAME = Food.SALMON.getDisplayName();
     private static final int MIN_GOLD_BAR_BUY_QUANTITY = 50;
     private static final int MAX_GOLD_BAR_BUY_QUANTITY = 100;
 
@@ -115,7 +118,8 @@ public class BuyScript extends Script {
     private int goldBarsToBuy;
     private boolean bankHasBronzeSword;
     private boolean bankHasWoodenShield;
-    private int bankShrimpCount;
+    private int bankTroutCount;
+    private int bankSalmonCount;
 
     private String lastDesiredPickaxe;
     private String lastDesiredAxe;
@@ -427,10 +431,23 @@ public class BuyScript extends Script {
         this.addFishingSupplyToBudgetIfMissing(budget, TIARA_MOULD_NAME);
         this.addFishingSupplyToBudgetIfMissing(budget, BRONZE_SWORD_NAME);
         this.addFishingSupplyToBudgetIfMissing(budget, WOODEN_SHIELD_NAME);
+        this.addFishingSupplyToBudgetIfMissing(budget, SALMON_NAME);
         this.addOreToBudgetIfMissing(budget, COPPER_ORE_NAME);
         this.addOreToBudgetIfMissing(budget, TIN_ORE_NAME);
 
         return budget;
+    }
+
+    public boolean canAffordMissingBuys() {
+        String desiredPickaxe = this.resolveDesiredPickaxeName();
+        String desiredAxe = this.resolveDesiredAxeName();
+        if (Rs2Bank.isOpen()) {
+            this.refreshBankAuditSnapshot(desiredPickaxe, desiredAxe);
+        }
+        this.calculateSmithingOreNeeds();
+        this.calculateCraftingNeeds();
+        BuyBudget budget = this.calculateMissingBuyBudget(desiredPickaxe, desiredAxe);
+        return budget.estimatedCost <= 0L || budget.hasEnoughCoins();
     }
 
     private void addToolToBudgetIfMissing(BuyBudget budget, String itemName) {
@@ -499,7 +516,8 @@ public class BuyScript extends Script {
         this.bankHasTiaraMould = Rs2Bank.count(TIARA_MOULD_NAME) > 0;
         this.bankHasBronzeSword = Rs2Bank.count(BRONZE_SWORD_NAME) > 0;
         this.bankHasWoodenShield = Rs2Bank.count(WOODEN_SHIELD_NAME) > 0;
-        this.bankShrimpCount = Math.max(0, Rs2Bank.count(SHRIMP_NAME));
+        this.bankTroutCount = Math.max(0, Rs2Bank.count(Food.TROUT.getItemId()));
+        this.bankSalmonCount = Math.max(0, Rs2Bank.count(Food.SALMON.getItemId()));
         this.refreshCachedBankOreCounts();
         this.bankToolsAudited = true;
     }
@@ -663,7 +681,8 @@ public class BuyScript extends Script {
         this.goldBarsToBuy = 0;
         this.bankHasBronzeSword = false;
         this.bankHasWoodenShield = false;
-        this.bankShrimpCount = 0;
+        this.bankTroutCount = 0;
+        this.bankSalmonCount = 0;
         this.bankHasSmallFishingNet = false;
         this.bankHasFishingRod = false;
         this.bankHasFlyFishingRod = false;
@@ -789,7 +808,8 @@ public class BuyScript extends Script {
                 || !this.hasFishingToolInBank(LOBSTER_POT_NAME)
                 || this.hasCraftingBuyRequirementMissing()
                 || this.hasJewelleryBuyRequirementMissing()
-                || this.hasChickenMeleeBuyRequirementMissing();
+                || this.hasChickenMeleeBuyRequirementMissing()
+                || this.getFishingSupplyQuantityToBuy(SALMON_NAME) > 0;
     }
 
     private boolean needsFishingSupplies() {
@@ -844,7 +864,8 @@ public class BuyScript extends Script {
                 || this.getFishingSupplyQuantityToBuy(CHISEL_NAME) > 0
                 || this.getFishingSupplyQuantityToBuy(TIARA_MOULD_NAME) > 0
                 || this.getFishingSupplyQuantityToBuy(BRONZE_SWORD_NAME) > 0
-                || this.getFishingSupplyQuantityToBuy(WOODEN_SHIELD_NAME) > 0;
+                || this.getFishingSupplyQuantityToBuy(WOODEN_SHIELD_NAME) > 0
+                || this.getFishingSupplyQuantityToBuy(SALMON_NAME) > 0;
     }
 
     private String getNextFishingSupplyToBuy() {
@@ -861,7 +882,7 @@ public class BuyScript extends Script {
         String[] supplies = {
                 LEATHER_NAME, THREAD_NAME, NEEDLE_NAME, GOLD_BAR_NAME, RING_MOULD_NAME, NECKLACE_MOULD_NAME,
                 CHISEL_NAME, TIARA_MOULD_NAME,
-                BRONZE_SWORD_NAME, WOODEN_SHIELD_NAME
+                BRONZE_SWORD_NAME, WOODEN_SHIELD_NAME, SALMON_NAME
         };
 
         for (String supply : supplies) {
@@ -929,8 +950,15 @@ public class BuyScript extends Script {
             return this.shouldUseChickenMeleeKit() && !this.bankHasWoodenShield ? 1 : 0;
         }
 
-        if (SHRIMP_NAME.equalsIgnoreCase(itemName)) {
-            return 0;
+        if (SALMON_NAME.equalsIgnoreCase(itemName)) {
+            if (this.shouldUseChickenMeleeKit()) {
+                return 0;
+            }
+            int validFoodCount = this.bankTroutCount + this.bankSalmonCount;
+            return validFoodCount < Buy.MELEE_TARGET_FOOD_COUNT
+                    ? Math.max(Buy.MELEE_FOOD_PURCHASE_QUANTITY,
+                            Buy.MELEE_TARGET_FOOD_COUNT - validFoodCount)
+                    : 0;
         }
 
         return 0;
@@ -1388,8 +1416,10 @@ public class BuyScript extends Script {
             this.bankHasBronzeSword = true;
         } else if (WOODEN_SHIELD_NAME.equalsIgnoreCase(itemName)) {
             this.bankHasWoodenShield = true;
-        } else if (SHRIMP_NAME.equalsIgnoreCase(itemName)) {
-            this.bankShrimpCount += quantity;
+        } else if (TROUT_NAME.equalsIgnoreCase(itemName)) {
+            this.bankTroutCount += quantity;
+        } else if (SALMON_NAME.equalsIgnoreCase(itemName)) {
+            this.bankSalmonCount += quantity;
         }
 
         this.pendingFishingSupplyBuyQuantities.remove(this.normalizeItemName(itemName));
@@ -1566,7 +1596,8 @@ public class BuyScript extends Script {
                 || itemName.equalsIgnoreCase(TIARA_MOULD_NAME)
                 || itemName.equalsIgnoreCase(BRONZE_SWORD_NAME)
                 || itemName.equalsIgnoreCase(WOODEN_SHIELD_NAME)
-                || itemName.equalsIgnoreCase(SHRIMP_NAME));
+                || itemName.equalsIgnoreCase(TROUT_NAME)
+                || itemName.equalsIgnoreCase(SALMON_NAME));
     }
 
     private String normalizeItemName(String itemName) {
@@ -1685,13 +1716,14 @@ public class BuyScript extends Script {
         this.waitForActionCooldown();
 
         Microbot.status = "Buying " + itemName;
+        int buyPrice = this.getAdjustedBuyPrice(itemName);
 
         GrandExchangeRequest request = GrandExchangeRequest.builder()
                 .action(GrandExchangeAction.BUY)
                 .itemName(itemName)
                 .exact(true)
                 .quantity(1)
-                .percent(10)
+                .price(buyPrice)
                 .closeAfterCompletion(false)
                 .build();
 
@@ -1700,8 +1732,9 @@ public class BuyScript extends Script {
         boolean offered = Rs2GrandExchange.processOffer(request);
 
         this.debug(
-                "GE missing-tool buy offer | item={} qty=1 percent=10 offered={} slots={}",
+                "GE missing-tool buy offer | item={} qty=1 price={} offered={} slots={}",
                 itemName,
+                buyPrice,
                 offered,
                 Rs2GrandExchange.isOpen() ? Rs2GrandExchange.getAvailableSlotsCount() : -1
         );
@@ -2227,6 +2260,14 @@ public class BuyScript extends Script {
     }
 
     private int getAdjustedBuyPrice(String itemName) {
+        if (HAMMER_NAME.equalsIgnoreCase(itemName)) {
+            return HAMMER_BUY_PRICE;
+        }
+
+        if (HARPOON_NAME.equalsIgnoreCase(itemName)) {
+            return HARPOON_BUY_PRICE;
+        }
+
         int guidePrice = this.getGuidePrice(itemName);
 
         if (guidePrice <= 0) {
@@ -2392,7 +2433,8 @@ public class BuyScript extends Script {
         this.goldBarsToBuy = 0;
         this.bankHasBronzeSword = false;
         this.bankHasWoodenShield = false;
-        this.bankShrimpCount = 0;
+        this.bankTroutCount = 0;
+        this.bankSalmonCount = 0;
 
         this.lastDesiredPickaxe = null;
         this.lastDesiredAxe = null;

@@ -58,6 +58,7 @@ public class FishingScript extends Script
     private LevelReqs randomLevel50Fish;
     private FishingState state = FishingState.WAITING;
     private boolean debugLogging;
+    private boolean progressiveFishing = true;
     private volatile boolean walkingToTargetArea;
     private volatile boolean targetAreaArrivalHandled;
     private int cookingBatchItemId = NO_COOKING_BATCH;
@@ -72,10 +73,16 @@ public class FishingScript extends Script
 
     public boolean run(Areas area)
     {
+        return run(area, true);
+    }
+
+    public boolean run(Areas area, boolean progressiveFishing)
+    {
         shutdown();
 
         targetArea = area;
-        targetFish = LevelReqs.SHRIMP;
+        this.progressiveFishing = progressiveFishing;
+        targetFish = progressiveFishing ? LevelReqs.SHRIMP : resolveFishForArea(area);
         randomLevel50Fish = null;
         state = FishingState.CHECKING_SUPPLIES;
         targetAreaArrivalHandled = false;
@@ -90,8 +97,8 @@ public class FishingScript extends Script
             }
 
             int fishingLevel = Microbot.getClient().getRealSkillLevel(Skill.FISHING);
-            LevelReqs desiredFish = resolveFishForLevel(fishingLevel);
-            Areas desiredArea = resolveTargetArea(desiredFish);
+            LevelReqs desiredFish = progressiveFishing ? resolveFishForLevel(fishingLevel) : targetFish;
+            Areas desiredArea = progressiveFishing ? resolveTargetArea(desiredFish) : targetArea;
 
             if (desiredFish != targetFish || desiredArea != targetArea)
             {
@@ -156,6 +163,23 @@ public class FishingScript extends Script
         }, 0L, LOOP_DELAY_MS, TimeUnit.MILLISECONDS);
 
         return true;
+    }
+
+    private LevelReqs resolveFishForArea(Areas area)
+    {
+        if (area == Areas.SARDINE_HERRING)
+        {
+            return LevelReqs.HERRING;
+        }
+        if (area == Areas.TROUT_SALMON)
+        {
+            return LevelReqs.SALMON;
+        }
+        if (area == Areas.KARAMJA)
+        {
+            return LevelReqs.SWORDFISH;
+        }
+        return LevelReqs.SHRIMP;
     }
 
     private LevelReqs resolveFishForLevel(int fishingLevel)

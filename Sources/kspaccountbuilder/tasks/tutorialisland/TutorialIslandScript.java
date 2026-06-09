@@ -16,8 +16,6 @@ import net.runelite.client.plugins.microbot.globval.enums.InterfaceTab;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.tutorialisland.areas.TutAreas;
-import net.runelite.client.plugins.microbot.util.antiban.Rs2Antiban;
-import net.runelite.client.plugins.microbot.util.antiban.Rs2AntibanSettings;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.camera.Rs2Camera;
 import net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue;
@@ -54,6 +52,7 @@ import static net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue.is
 public class TutorialIslandScript extends Script
 {
     private static final int LOOP_DELAY_MS = 600;
+    private static final int DEFAULT_CAMERA_ZOOM = 377;
     private static final int NAME_ATTEMPT_COOLDOWN_MS = 3500;
     private static final int COMPLETION_LOGOUT_RETRY_MS = 6000;
     private static final int QUEUE_LOGIN_RETRY_MS = 10000;
@@ -134,7 +133,6 @@ public class TutorialIslandScript extends Script
     {
         shutdown();
         resetAccountState();
-        configureAntiban();
 
         mainScheduledFuture = scheduledExecutorService.scheduleWithFixedDelay(() -> {
             try
@@ -613,7 +611,7 @@ public class TutorialIslandScript extends Script
             return true;
         }
 
-        Rs2Camera.setZoom(Rs2Random.between(400, 450));
+        Rs2Camera.setZoom(DEFAULT_CAMERA_ZOOM);
         Rs2Random.waitEx(300, 100);
         Rs2Camera.setPitch(280);
         sleepUntil(() -> Rs2Camera.getPitch() > 250);
@@ -1929,20 +1927,11 @@ public class TutorialIslandScript extends Script
         }
     }
 
-    private void configureAntiban()
-    {
-        Rs2Antiban.resetAntibanSettings();
-        Rs2AntibanSettings.naturalMouse = true;
-        Rs2AntibanSettings.moveMouseRandomly = true;
-        Rs2AntibanSettings.simulateMistakes = true;
-    }
-
     @Override
     public void shutdown()
     {
         debugEnabled = false;
         super.shutdown();
-        Rs2Antiban.resetAntibanSettings();
     }
 
     // -------------------------------------------------------------------------

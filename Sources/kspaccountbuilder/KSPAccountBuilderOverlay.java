@@ -35,10 +35,11 @@ public class KSPAccountBuilderOverlay extends OverlayPanel
         String displayStatus = normalizeStatus(Microbot.status);
 
         String title = "KSP Account Builder V" + KspAccountBuilderPlugin.VERSION;
-        if (script.isBreakActive())
+        if (script.isAnyBreakActive())
         {
-            long breakRemaining = script.getBreakTimeRemainingSeconds();
-            title = title + " | Break " + formatDuration(breakRemaining);
+            title = title + (script.isBreakActive()
+                    ? " | Break " + formatDuration(script.getBreakTimeRemainingSeconds())
+                    : " | Break");
         }
 
         panelComponent.getChildren().add(TitleComponent.builder()

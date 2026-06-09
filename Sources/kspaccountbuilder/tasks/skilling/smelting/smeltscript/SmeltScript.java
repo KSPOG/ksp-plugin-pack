@@ -62,15 +62,21 @@ extends Script {
     private BarLevels targetBar = BarLevels.BRONZE;
     private boolean debugLogging;
     private boolean walkingToTargetArea;
+    private boolean progressiveSmelting = true;
 
     public void setDebugLogging(boolean debugLogging) {
         this.debugLogging = debugLogging;
     }
 
     public boolean run(SmeltArea area, BarLevels fallbackBarLevel) {
+        return this.run(area, fallbackBarLevel, true);
+    }
+
+    public boolean run(SmeltArea area, BarLevels fallbackBarLevel, boolean progressiveSmelting) {
         this.shutdown();
         this.targetArea = area;
         this.targetBar = fallbackBarLevel;
+        this.progressiveSmelting = progressiveSmelting;
         this.mainScheduledFuture = this.scheduledExecutorService.scheduleWithFixedDelay(() -> {
             if (!super.run() || !Microbot.isLoggedIn()) {
                 return;
@@ -101,6 +107,11 @@ extends Script {
     }
 
     private void selectTargetBar(BarLevels fallbackBarLevel) {
+        if (!this.progressiveSmelting) {
+            this.targetBar = fallbackBarLevel;
+            return;
+        }
+
         BarLevels inventoryBar = this.resolveInventorySmeltableBar();
         if (inventoryBar != null) {
             if (this.targetBar != inventoryBar) {

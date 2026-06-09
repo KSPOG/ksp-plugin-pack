@@ -171,7 +171,19 @@ public class FireMakingScript extends Script
 
         for (int i = bestMatch.ordinal() - 1; i >= 0; i--)
         {
-            String fallbackLogName = LogsLvl.values()[i].getDisplayName();
+            LogsLvl fallbackLogs = LogsLvl.values()[i];
+            if (firemakingLevel >= LogsLvl.WILLOW_LOGS.getRequiredLevel())
+            {
+                continue;
+            }
+
+            if (firemakingLevel >= LogsLvl.OAK_LOGS.getRequiredLevel()
+                    && fallbackLogs == LogsLvl.LOGS)
+            {
+                continue;
+            }
+
+            String fallbackLogName = fallbackLogs.getDisplayName();
 
             if (hasLogsAvailable(fallbackLogName))
             {

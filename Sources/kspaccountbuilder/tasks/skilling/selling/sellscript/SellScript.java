@@ -31,12 +31,14 @@
 package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.sellscript;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import javax.inject.Inject;
 import javax.inject.Singleton;
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
@@ -45,6 +47,7 @@ import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.KspAccountPlayTimeCache;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspGrandExchangeHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.ksputil.KspBankWidgetHelper;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.KspTaskDebug;
@@ -80,17 +83,20 @@ extends Script {
     private static final int TRADE_RESTRICTION_MIN_TOTAL_LEVEL = 100;
     private static final int TRADE_RESTRICTION_MIN_QUEST_POINTS = 10;
     private static final int TRADE_RESTRICTION_MIN_HOURS_PLAYED = 20;
+    private static final int MAX_WITHDRAW_FAILURES = 3;
     private static final int SIDE_JOURNAL_TAB_CONTAINER_WIDGET_ID = 41222157;
     private static final int ACCOUNT_SUMMARY_WIDGET_ID = 46661633;
     private static final int TIME_PLAYED_WIDGET_ID = 46661634;
     private static final String[] PICKAXE_NAMES = Buy.PICKAXE_NAMES;
     private static final String[] AXE_NAMES = Buy.AXE_NAMES;
-    private static final Set<String> TRADE_RESTRICTED_ITEM_NAMES = new HashSet<String>(Arrays.asList("rune essence", "pure essence", "air rune", "water rune", "earth rune", "fire rune", "mind rune", "chaos rune", "nature rune", "law rune", "death rune", "blood rune", "feather", "cowhide", "leather", "green dragonhide", "copper ore", "tin ore", "iron ore", "coal", "gold ore", "mithril ore", "adamantite ore", "runite ore", "iron bar", "steel bar", "mithril bar", "adamantite bar", "runite bar", "logs", "oak logs", "willow logs", "maple logs", "yew logs", "magic logs", "raw shrimp", "shrimp", "raw anchovies", "anchovies", "raw trout", "trout", "raw salmon", "salmon", "raw tuna", "tuna", "raw lobster", "lobster", "raw swordfish", "swordfish", "raw shark", "shark", "sapphire", "emerald", "ruby", "diamond", "bow string", "bronze arrow", "iron arrow", "steel arrow", "mithril arrow", "adamant arrow", "rune arrow", "bronze bolts", "iron bolts", "steel bolts", "bones", "big bones", "wine of zamorak"));
+    @Inject
+    private KspAccountPlayTimeCache accountPlayTimeCache;
     private GEArea targetArea = GEArea.GRAND_EXCHANGE;
     private boolean debugLogging;
     private long lastWebWalkAtMs;
     private long lastActionAtMs;
     private final Set<String> blockedSellItems = new HashSet<String>();
+    private final Map<String, Integer> withdrawFailureCounts = new HashMap<String, Integer>();
     private Boolean tradeRestrictionUnlockedCache;
     private Integer cachedHoursPlayed;
     private long lastTradeRestrictionCheckAtMs;
@@ -200,6 +206,11 @@ extends Script {
     private void prepareSellInventoryFromBank() {
         if (!Rs2Bank.isOpen()) {
             if (Rs2GrandExchange.isOpen()) {
+                if (this.shouldWaitAtGrandExchange()) {
+                    this.state = SellState.SELLING_ITEMS;
+                    Microbot.status = "Waiting for GE Slot";
+                    return;
+                }
                 Microbot.status = "Closing GE";
                 Rs2GrandExchange.closeExchange();
                 SellScript.sleepUntil(() -> !Rs2GrandExchange.isOpen(), (int)2000);
@@ -244,12 +255,13 @@ extends Script {
             if (this.isBlockedSellItem(sellList.getDisplayName())) continue;
             int quantityToSell = this.getSellableBankQuantity(sellList.getDisplayName());
             if (quantityToSell <= 0) continue;
-            if (quantityToSell >= Rs2Bank.count(sellList.getDisplayName())) {
+            if (quantityToSell >= Rs2Bank.count(sellList.getDisplayName(), true)) {
                 Rs2Bank.withdrawAll((String)sellList.getDisplayName(), (boolean)true);
             } else {
-                Rs2Bank.withdrawX(sellList.getDisplayName(), quantityToSell);
+                Rs2Bank.withdrawX(sellList.getDisplayName(), quantityToSell, true);
             }
             boolean withdrew = SellScript.sleepUntil(() -> Rs2Inventory.hasItem((String)sellList.getDisplayName(), (boolean)true), (int)3000);
+            this.recordWithdrawResult(sellList.getDisplayName(), withdrew);
             this.debug("Withdraw sell item | item={} qty={} reservedForQuests={} withdrew={} invFull={}",
                     sellList.getDisplayName(),
                     quantityToSell,
@@ -273,16 +285,45 @@ extends Script {
         Microbot.status = "Opening GE";
     }
 
+    private void recordWithdrawResult(String itemName, boolean withdrew) {
+        if (itemName == null) {
+            return;
+        }
+        String normalizedName = itemName.toLowerCase(Locale.ENGLISH);
+        if (withdrew) {
+            this.withdrawFailureCounts.remove(normalizedName);
+            return;
+        }
+        int failureCount = this.withdrawFailureCounts.getOrDefault(normalizedName, 0) + 1;
+        this.withdrawFailureCounts.put(normalizedName, failureCount);
+        if (failureCount < MAX_WITHDRAW_FAILURES) {
+            return;
+        }
+        this.blockedSellItems.add(normalizedName);
+        this.debug("Blocking sell item after repeated withdrawal failures | item={} failures={}",
+                itemName,
+                failureCount);
+    }
+
     private void updateState() {
         if (!this.targetArea.toWorldArea().contains(Rs2Player.getWorldLocation())) {
             this.state = SellState.GOING_TO_GE;
             return;
         }
         if (!this.hasSellableInventoryItems()) {
-            this.state = SellState.RESTOCKING_FROM_BANK;
+            this.state = this.shouldWaitAtGrandExchange()
+                    ? SellState.SELLING_ITEMS
+                    : SellState.RESTOCKING_FROM_BANK;
             return;
         }
         this.state = SellState.SELLING_ITEMS;
+    }
+
+    private boolean shouldWaitAtGrandExchange() {
+        return Rs2GrandExchange.isOpen()
+                && (Rs2GrandExchange.isOfferScreenOpen()
+                || Rs2GrandExchange.hasSoldOffer()
+                || Rs2GrandExchange.getAvailableSlotsCount() <= 0);
     }
 
     private void handleSellingItems() {
@@ -321,7 +362,7 @@ extends Script {
     }
 
     private boolean shouldSellEntry(SellList sellList) {
-        if (this.isTradeRestrictedItemName(sellList.getDisplayName())) {
+        if (sellList.isTradeRestricted() && !this.hasUnlockedTradeRestrictedItems()) {
             return false;
         }
         int firemakingLevel = Microbot.getClient().getRealSkillLevel(Skill.FIREMAKING);
@@ -330,6 +371,9 @@ extends Script {
         }
         if (sellList == SellList.OAK_LOGS) {
             return firemakingLevel >= 30;
+        }
+        if (sellList == SellList.SILVER_ORE) {
+            return Microbot.getClient().getRealSkillLevel(Skill.SMITHING) < 20;
         }
         if (sellList == SellList.SMALL_FISHING_NET
                 || sellList == SellList.FISHING_ROD
@@ -340,7 +384,7 @@ extends Script {
     }
 
     private int getSellableBankQuantity(String itemName) {
-        int bankQuantity = Math.max(0, Rs2Bank.count(itemName));
+        int bankQuantity = Math.max(0, Rs2Bank.count(itemName, true));
         return Math.max(0, bankQuantity - this.getReservedQuestRequirementQuantity(itemName));
     }
 
@@ -387,6 +431,10 @@ extends Script {
             return true;
         }
         return this.hasOutdatedToolInBank();
+    }
+
+    public boolean hasSellListItemsAvailable() {
+        return this.hasSellableInventoryItems() || this.hasSellableBankItems();
     }
 
     private Rs2ItemModel getNextSellableInventoryItem() {
@@ -463,25 +511,41 @@ extends Script {
         return itemName != null && this.blockedSellItems.contains(itemName.toLowerCase(Locale.ENGLISH));
     }
 
-    private boolean isTradeRestrictedItemName(String itemName) {
-        if (itemName == null || !TRADE_RESTRICTED_ITEM_NAMES.contains(itemName.toLowerCase(Locale.ENGLISH))) {
-            return false;
-        }
-        return !this.hasUnlockedTradeRestrictedItems();
-    }
-
     private boolean hasUnlockedTradeRestrictedItems() {
         long now = System.currentTimeMillis();
-        if (this.tradeRestrictionUnlockedCache != null && now - this.lastTradeRestrictionCheckAtMs < 300000L) {
+        if (this.tradeRestrictionUnlockedCache != null
+                && now - this.lastTradeRestrictionCheckAtMs < TRADE_RESTRICTION_CACHE_MS) {
             return this.tradeRestrictionUnlockedCache;
         }
+        long accountHash = this.getCurrentAccountHash();
+        long playTimeMillis = accountHash != 0L
+                && this.accountPlayTimeCache != null
+                && this.accountPlayTimeCache.hasCachedPlayTime(accountHash)
+                ? this.accountPlayTimeCache.getPlayTimeMillis(accountHash)
+                : -1L;
         boolean unlocked = false;
-        if (this.getTotalLevel() >= 100 && this.getQuestPoints() >= 10) {
-            unlocked = this.getHoursPlayed() >= 20;
+        if (this.getTotalLevel() >= TRADE_RESTRICTION_MIN_TOTAL_LEVEL
+                && this.getQuestPoints() >= TRADE_RESTRICTION_MIN_QUEST_POINTS) {
+            unlocked = playTimeMillis >= TimeUnit.HOURS.toMillis(TRADE_RESTRICTION_MIN_HOURS_PLAYED);
         }
         this.tradeRestrictionUnlockedCache = unlocked;
         this.lastTradeRestrictionCheckAtMs = now;
+        this.debug("Trade restriction check | accountHash={} playTimeMinutes={} totalLevel={} questPoints={} unlocked={}",
+                accountHash == 0L ? "unavailable" : Long.toUnsignedString(accountHash),
+                playTimeMillis < 0L ? -1L : TimeUnit.MILLISECONDS.toMinutes(playTimeMillis),
+                this.getTotalLevel(),
+                this.getQuestPoints(),
+                unlocked);
         return unlocked;
+    }
+
+    private long getCurrentAccountHash() {
+        if (!Microbot.isLoggedIn() || Microbot.getClient() == null) {
+            return 0L;
+        }
+        return Microbot.getClientThread()
+                .runOnClientThreadOptional(() -> Microbot.getClient().getAccountHash())
+                .orElse(0L);
     }
 
     private int getTotalLevel() {
@@ -663,6 +727,7 @@ extends Script {
         this.lastWebWalkAtMs = 0L;
         this.lastActionAtMs = 0L;
         this.blockedSellItems.clear();
+        this.withdrawFailureCounts.clear();
         this.tradeRestrictionUnlockedCache = null;
         this.cachedHoursPlayed = null;
         this.lastTradeRestrictionCheckAtMs = 0L;

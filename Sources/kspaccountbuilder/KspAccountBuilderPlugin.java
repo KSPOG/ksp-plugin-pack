@@ -2,8 +2,6 @@ package net.runelite.client.plugins.microbot.kspaccountbuilder;
 
 import com.google.inject.Provides;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.events.GameTick;
-import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.plugins.Plugin;
@@ -28,7 +26,7 @@ import javax.inject.Inject;
 @SuppressWarnings("unused") // Loaded dynamically by the hub build/plugin discovery process.
 public class KspAccountBuilderPlugin extends Plugin
 {
-    public static final String VERSION = "1.5.54";
+    public static final String VERSION = "1.5.96";
 
     @Inject
     private KspAccountBuilderScript script;
@@ -40,10 +38,10 @@ public class KspAccountBuilderPlugin extends Plugin
     private KSPAccountBuilderOverlay overlay;
 
     @Inject
-    private OverlayManager overlayManager;
+    private ConfigManager configManager;
 
     @Inject
-    private KspAgentSnapshotService agentSnapshotService;
+    private OverlayManager overlayManager;
 
     private KspRandomEventSolver randomEventSolver;
 
@@ -57,6 +55,7 @@ public class KspAccountBuilderPlugin extends Plugin
     protected void startUp()
     {
         log.info("Starting KSP Account Builder plugin");
+        migrateSingleSkillTargetDefaults();
         overlayManager.add(overlay);
         randomEventSolver = new KspRandomEventSolver();
         Microbot.getBlockingEventManager().add(randomEventSolver);
@@ -76,10 +75,22 @@ public class KspAccountBuilderPlugin extends Plugin
         overlayManager.remove(overlay);
     }
 
-
-    @Subscribe
-    public void onGameTick(GameTick event)
+    private void migrateSingleSkillTargetDefaults()
     {
-        agentSnapshotService.writeSnapshot();
+        String[] progressiveKeys = {
+                "singleSkillMiningTarget",
+                "singleSkillWoodcuttingTarget",
+                "singleSkillFishingTarget",
+                "singleSkillSmithingTarget",
+                "singleSkillSmeltingTarget"
+        };
+
+        for (String key : progressiveKeys)
+        {
+            if ("AUTOMATIC".equals(configManager.getConfiguration(KspAccountBuilderConfig.CONFIG_GROUP, key)))
+            {
+                configManager.setConfiguration(KspAccountBuilderConfig.CONFIG_GROUP, key, "PROGRESSIVE");
+            }
+        }
     }
 }
