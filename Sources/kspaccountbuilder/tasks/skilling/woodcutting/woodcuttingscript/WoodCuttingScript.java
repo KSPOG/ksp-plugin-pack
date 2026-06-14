@@ -414,7 +414,21 @@ public class WoodCuttingScript extends Script {
     private void bankLogsOnly(int woodcuttingLevel) {
         this.ensureInventoryTabOpen();
 
-        if (!Rs2Bank.walkToBankAndUseBank() && !Rs2Bank.openBank()) {
+        boolean useLocalWillowBank = this.targetArea == TreeAreas.WILLOW_TREES_DRAYNOR
+                && this.targetArea.contains(Rs2Player.getWorldLocation());
+
+        if (useLocalWillowBank) {
+            KspWalkerGuard.clearReachedDestination(
+                    "Woodcutting:target-area",
+                    "ksp_woodcutting_willow_local_bank");
+            KspWalkerGuard.clearActiveWalker("ksp_woodcutting_willow_local_bank");
+        }
+
+        boolean bankOpened = useLocalWillowBank
+                ? Rs2Bank.openBank()
+                : Rs2Bank.walkToBankAndUseBank() || Rs2Bank.openBank();
+
+        if (!bankOpened) {
             return;
         }
 
@@ -433,6 +447,53 @@ public class WoodCuttingScript extends Script {
 
             WoodCuttingScript.sleep(300);
             Rs2Bank.closeBank();
+            WoodCuttingScript.sleepUntil(() -> !Rs2Bank.isOpen(), 2_000);
+
+            if (useLocalWillowBank) {
+                this.interactWithBestWillowAfterBank();
+            }
+        }
+    }
+
+    private void interactWithBestWillowAfterBank() {
+        if (Rs2Bank.isOpen() || Rs2Player.isMoving() || Rs2Player.isAnimating()) {
+            return;
+        }
+
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        if (playerLocation == null) {
+            return;
+        }
+
+        int searchRadius = this.getAreaSearchRadius() + TREE_SEARCH_PADDING_TILES;
+        Rs2TileObjectModel willow = this.findMatchingTree(
+                playerLocation,
+                searchRadius,
+                TreeLevel.WILLOW,
+                false);
+
+        if (willow == null) {
+            this.debug("No reachable Willow found after local Draynor bank deposit | player={}",
+                    playerLocation);
+            return;
+        }
+
+        this.lastObjectInteractionAtMs = System.currentTimeMillis();
+        Microbot.status = "Chopping " + willow.getName();
+        boolean clicked = willow.click("Chop down");
+        this.debug("Direct Willow interaction after banking | clicked={} tree={} id={} loc={} player={}",
+                clicked,
+                willow.getName(),
+                willow.getId(),
+                willow.getWorldLocation(),
+                playerLocation);
+
+        if (clicked) {
+            WoodCuttingScript.sleepUntil(
+                    () -> Rs2Player.isMoving()
+                            || Rs2Player.isAnimating()
+                            || Rs2Player.isInteracting(),
+                    1_200);
         }
     }
 

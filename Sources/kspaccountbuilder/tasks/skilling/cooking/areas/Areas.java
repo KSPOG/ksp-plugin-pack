@@ -3,7 +3,7 @@ package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.co
 public enum Areas
 {
     EDGEVILLE_RANGE("Edgeville cooking range", new Area(3081, 3496, 3077, 3489)),
-    LUMBRIDGE_KITCHEN("Lumbridge Kitchen", new Area(3211, 3212, 3206, 3216));
+    LUMBRIDGE_KITCHEN("Lumbridge Kitchen", new Area(3212, 3212, 3206, 3216));
 
     private final String displayName;
     private final Area area;

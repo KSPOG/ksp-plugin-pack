@@ -1,9 +1,10 @@
-package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.crafting.areas;
+package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.questing.romeoandjuliet.romeoareas;
 
 public enum Areas
 {
-    EDGE_BANK("Edgeville bank", new Area(3098, 3499, 3090, 3488)),
-    EDGE_FURNACE("Edgeville furnace", new Area(3105, 3501, 3109, 3496));
+    JULIET("Juliet", new Area(3161, 3426, 3155, 3424).setPlane(1)),
+    HALLWAY("Hallway", new Area(3157, 3436, 3164, 3432)),
+    CADAVA_BUSH("Cadava bush", new Area(3276, 3375, 3279, 3373));
 
     private final String displayName;
     private final Area area;

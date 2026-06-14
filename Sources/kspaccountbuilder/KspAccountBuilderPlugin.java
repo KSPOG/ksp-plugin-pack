@@ -26,7 +26,7 @@ import javax.inject.Inject;
 @SuppressWarnings("unused") // Loaded dynamically by the hub build/plugin discovery process.
 public class KspAccountBuilderPlugin extends Plugin
 {
-    public static final String VERSION = "1.5.96";
+    public static final String VERSION = "1.5.155";
 
     @Inject
     private KspAccountBuilderScript script;

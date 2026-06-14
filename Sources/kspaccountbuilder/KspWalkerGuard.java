@@ -33,6 +33,11 @@ public final class KspWalkerGuard
             int arriveDistance,
             long refireCooldownMs)
     {
+        if (blockWalkingForOpenWorldMap())
+        {
+            return false;
+        }
+
         if (key == null || targetSupplier == null || destinationMatcher == null)
         {
             return false;
@@ -83,6 +88,11 @@ public final class KspWalkerGuard
 
     public static boolean walkToPoint(String key, WorldPoint target, int arriveDistance, long refireCooldownMs)
     {
+        if (blockWalkingForOpenWorldMap())
+        {
+            return false;
+        }
+
         if (!shouldWalkToPoint(key, target, arriveDistance, refireCooldownMs))
         {
             return false;
@@ -94,6 +104,11 @@ public final class KspWalkerGuard
 
     public static boolean walkFastCanvasToPoint(String key, WorldPoint target, int arriveDistance, long refireCooldownMs)
     {
+        if (blockWalkingForOpenWorldMap())
+        {
+            return false;
+        }
+
         if (!shouldWalkToPoint(key, target, arriveDistance, refireCooldownMs))
         {
             return false;
@@ -105,6 +120,11 @@ public final class KspWalkerGuard
 
     public static synchronized boolean recoverActiveWalkIfIdle()
     {
+        if (blockWalkingForOpenWorldMap())
+        {
+            return false;
+        }
+
         WorldPoint walkerTarget = Rs2Walker.getCurrentTarget();
         WorldPoint playerLocation = Rs2Player.getWorldLocation();
         long now = System.currentTimeMillis();
@@ -153,6 +173,17 @@ public final class KspWalkerGuard
                 + " recoveryTarget=" + recoveryTarget
                 + " walkerTarget=" + walkerTarget);
         return clicked;
+    }
+
+    private static boolean blockWalkingForOpenWorldMap()
+    {
+        if (!KspWorldMapGuard.closeIfOpen())
+        {
+            return false;
+        }
+
+        clearActiveWalker("ksp_account_builder_world_map_open");
+        return true;
     }
 
     public static void clear(String key)

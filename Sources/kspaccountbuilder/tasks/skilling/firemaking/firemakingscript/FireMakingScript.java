@@ -59,6 +59,7 @@ public class FireMakingScript extends Script
     private long lastBurnPromptActionAtMs;
 
     private boolean expectingFiremakingXpDrop;
+    private boolean tendingForestersCampfire;
     private boolean debugLogging;
     private boolean walkingToTargetArea;
 
@@ -88,6 +89,34 @@ public class FireMakingScript extends Script
                 return;
             }
 
+            WorldPoint fireLocation = findUsableFireLocation();
+            if (tendingForestersCampfire)
+            {
+                Rs2TileObjectModel activeCampfire = findNearestForestersCampfireInTargetArea();
+                if (activeCampfire != null)
+                {
+                    fireLocation = activeCampfire.getWorldLocation();
+                    KspTaskDebug.throttled(log, debugLogging, "Firemaking", "tending-campfire-scan", 3_000L,
+                            "Tending scan found active Forester's Campfire | id={} location={} player={}",
+                            activeCampfire.getId(),
+                            activeCampfire.getWorldLocation(),
+                            Rs2Player.getWorldLocation());
+                }
+                else if (!isBurnInterfaceOpen(targetLogName, getTargetLogId(targetLogName)))
+                {
+                    resetFireInteractionState("Forester's Campfire disappeared during tending");
+                    fireLocation = findUsableFireLocation();
+                }
+            }
+            else if (expectingFiremakingXpDrop
+                    && fireLocation == null
+                    && !isBurnInterfaceOpen(targetLogName, getTargetLogId(targetLogName))
+                    && !Rs2Player.isAnimating()
+                    && !Rs2Player.isInteracting())
+            {
+                resetFireInteractionState("active fire disappeared");
+            }
+
             if (expectingFiremakingXpDrop && Rs2Player.waitForXpDrop(Skill.FIREMAKING, 4500))
             {
                 debug("Firemaking in progress with {}", targetLogName);
@@ -113,8 +142,6 @@ public class FireMakingScript extends Script
             {
                 return;
             }
-
-            WorldPoint fireLocation = findUsableFireLocation();
 
             if (!ensureSupplies(targetLogName, fireLocation != null))
             {
@@ -232,18 +259,11 @@ public class FireMakingScript extends Script
             return false;
         }
 
-        if (Rs2Inventory.hasItem(TINDERBOX_NAME) || !hasActiveFire)
-        {
-            Rs2Bank.depositAllExcept(TINDERBOX_NAME);
-        }
-        else
-        {
-            Rs2Bank.depositAll();
-        }
+        Rs2Bank.depositAllExcept(TINDERBOX_NAME);
 
         sleep(200);
 
-        if (!hasActiveFire && !Rs2Inventory.hasItem(TINDERBOX_NAME))
+        if (!Rs2Inventory.hasItem(TINDERBOX_NAME))
         {
             if (Rs2Bank.count(TINDERBOX_NAME) <= 0)
             {
@@ -428,8 +448,7 @@ public class FireMakingScript extends Script
         if (fireTile == null || !isValidFireId(fireTile.getId()))
         {
             debug("No valid fire tile at location | location={} tile={} targetLogId={}", fireLocation, fireTile, targetLogId);
-            // Reset waiting state if campfire is gone to prevent idle loop
-            awaitingFireStartAtMs = 0L;
+            resetFireInteractionState("selected fire disappeared");
             return;
         }
 
@@ -443,9 +462,14 @@ public class FireMakingScript extends Script
                     Rs2Player.getWorldLocation(),
                     targetLogId);
             interacted = fireTile.click("Tend-to");
+            if (interacted)
+            {
+                tendingForestersCampfire = true;
+            }
         }
         else
         {
+            tendingForestersCampfire = false;
             debug("Attempting fire item-on-object | id={} loc={} targetLogId={} player={}",
                     fireTile.getId(),
                     fireLocation,
@@ -532,6 +556,7 @@ public class FireMakingScript extends Script
         lastFireInteractAtMs = now;
         awaitingFireStartAtMs = now;
         expectingFiremakingXpDrop = true;
+        tendingForestersCampfire = false;
 
         sleepUntil(() -> Rs2Player.isAnimating() || Rs2Player.isInteracting(), FIRE_START_GRACE_MS);
     }
@@ -831,6 +856,16 @@ public class FireMakingScript extends Script
         return false;
     }
 
+    private void resetFireInteractionState(String reason)
+    {
+        debug("Resetting fire interaction state | reason={} player={}", reason, Rs2Player.getWorldLocation());
+        awaitingFireStartAtMs = 0L;
+        expectingFiremakingXpDrop = false;
+        tendingForestersCampfire = false;
+        lastBurnPromptActionAtMs = 0L;
+        KspWalkerGuard.clear("Firemaking:campfire");
+    }
+
     private void handleForesterCampfireDialogue()
     {
         if (!Rs2Dialogue.isInDialogue())
@@ -933,6 +968,17 @@ public class FireMakingScript extends Script
                 .nearest(getAreaCenter(), getAreaSearchRadius()));
     }
 
+    private Rs2TileObjectModel findNearestForestersCampfireInTargetArea()
+    {
+        return Microbot.getClientThread().invoke(() -> Microbot.getRs2TileObjectCache().query()
+                .fromWorldView()
+                .within(getAreaCenter(), getAreaSearchRadius())
+                .where(object -> object.getWorldLocation() != null
+                        && isInTargetArea(object.getWorldLocation())
+                        && object.getId() == FORESTERS_CAMPFIRE_ID)
+                .nearest(getAreaCenter(), getAreaSearchRadius()));
+    }
+
     private Rs2TileObjectModel findFireObjectAtLocation(WorldPoint location)
     {
         if (location == null)
@@ -1006,6 +1052,7 @@ public class FireMakingScript extends Script
         awaitingFireStartAtMs = 0L;
         lastBurnPromptActionAtMs = 0L;
         expectingFiremakingXpDrop = false;
+        tendingForestersCampfire = false;
         walkingToTargetArea = false;
         KspWalkerGuard.clear("Firemaking:target-area");
         KspWalkerGuard.clear("Firemaking:campfire");

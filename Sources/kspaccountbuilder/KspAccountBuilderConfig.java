@@ -41,10 +41,17 @@ public interface KspAccountBuilderConfig extends Config
 
     @ConfigSection(
             name = "Train Single Skill",
-            description = "Train one selected task instead of randomly switching activities",
+            description = "Train one selected skill instead of randomly switching activities",
             position = 3
     )
     String trainSingleSkillSection = "trainSingleSkill";
+
+    @ConfigSection(
+            name = "Run Single Quest",
+            description = "Run one selected quest instead of training skills or switching activities",
+            position = 4
+    )
+    String runSingleQuestSection = "runSingleQuest";
 
     @ConfigItem(
             keyName = "useAntiban",
@@ -138,7 +145,7 @@ public interface KspAccountBuilderConfig extends Config
     @ConfigItem(
             keyName = "enableActivitySwitchRandomization",
             name = "Randomize Activity Switch",
-            description = "Enable randomized timing before switching activities. Ignored while Train Single Skill is enabled.",
+            description = "Enable randomized timing before switching activities. Ignored while a single skill or quest is selected.",
             position = 0,
             section = activitySwitchSection
     )
@@ -187,8 +194,8 @@ public interface KspAccountBuilderConfig extends Config
 
     @ConfigItem(
             keyName = "singleSkillTask",
-            name = "Task",
-            description = "Task to train while Train Single Skill is enabled",
+            name = "Skill",
+            description = "Skill to train while Train Single Skill is enabled",
             position = 1,
             section = trainSingleSkillSection
     )
@@ -246,10 +253,22 @@ public interface KspAccountBuilderConfig extends Config
     }
 
     @ConfigItem(
+            keyName = "singleSkillCraftingTarget",
+            name = "Crafting",
+            description = "Crafting recipe",
+            position = 6,
+            section = trainSingleSkillSection
+    )
+    default KspSingleSkillConfigTarget.Crafting singleSkillCraftingTarget()
+    {
+        return KspSingleSkillConfigTarget.Crafting.NONE;
+    }
+
+    @ConfigItem(
             keyName = "singleSkillMeleeTarget",
             name = "Melee",
             description = "NPC and combat location",
-            position = 6,
+            position = 7,
             section = trainSingleSkillSection
     )
     default KspSingleSkillConfigTarget.Melee singleSkillMeleeTarget()
@@ -261,7 +280,7 @@ public interface KspAccountBuilderConfig extends Config
             keyName = "singleSkillSmithingTarget",
             name = "Smithing",
             description = "Product to smith",
-            position = 7,
+            position = 8,
             section = trainSingleSkillSection
     )
     default KspSingleSkillConfigTarget.Smithing singleSkillSmithingTarget()
@@ -273,11 +292,35 @@ public interface KspAccountBuilderConfig extends Config
             keyName = "singleSkillSmeltingTarget",
             name = "Smelting",
             description = "Bar to smelt",
-            position = 8,
+            position = 9,
             section = trainSingleSkillSection
     )
     default KspSingleSkillConfigTarget.Smelting singleSkillSmeltingTarget()
     {
         return KspSingleSkillConfigTarget.Smelting.NONE;
+    }
+
+    @ConfigItem(
+            keyName = "runSingleQuest",
+            name = "Run Single Quest",
+            description = "Force the account builder to run only the selected quest. Takes priority over Train Single Skill.",
+            position = 0,
+            section = runSingleQuestSection
+    )
+    default boolean runSingleQuest()
+    {
+        return false;
+    }
+
+    @ConfigItem(
+            keyName = "singleQuestTask",
+            name = "Quest",
+            description = "Quest to run while Run Single Quest is enabled",
+            position = 1,
+            section = runSingleQuestSection
+    )
+    default KspQuestTask singleQuestTask()
+    {
+        return KspQuestTask.COOKS_ASSISTANT;
     }
 }

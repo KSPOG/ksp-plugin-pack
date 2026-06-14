@@ -8,10 +8,13 @@ import java.util.concurrent.TimeUnit;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
+import net.runelite.api.Quest;
+import net.runelite.api.QuestState;
 import net.runelite.api.Skill;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
+import net.runelite.client.plugins.microbot.util.player.Rs2Player;
 import net.runelite.client.plugins.microbot.util.widget.Rs2Widget;
 
 @Singleton
@@ -86,6 +89,10 @@ public class KspExperienceLampScript extends Script {
         sleepUntil(() -> Rs2Widget.hasWidget(CONFIRM_TEXT), 2000);
     }
 
+    public boolean hasPendingLamp() {
+        return hasLamp();
+    }
+
     private boolean hasLamp() {
         return Rs2Inventory.get(item -> item != null
                 && item.getName() != null
@@ -96,8 +103,17 @@ public class KspExperienceLampScript extends Script {
         return Microbot.getClientThread().invoke(() -> {
             Client client = Microbot.getClient();
             return F2P_SKILLS.stream()
+                    .filter(this::isSkillUnlocked)
                     .min(Comparator.comparingInt(client::getSkillExperience))
                     .orElse(null);
         });
+    }
+
+    private boolean isSkillUnlocked(Skill skill) {
+        if (skill == Skill.RUNECRAFT) {
+            return Rs2Player.getQuestState(Quest.RUNE_MYSTERIES) == QuestState.FINISHED;
+        }
+
+        return true;
     }
 }

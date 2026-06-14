@@ -8,6 +8,8 @@ public enum KspDeveloperTask {
     TUTORIAL_ISLAND,
     COOKS_ASSISTANT,
     GOBLIN_DIPLOMACY,
+    RUNE_MYSTERIES,
+    RUNE_ESSENCE,
     MINING,
     WOODCUTTING,
     FISHING,

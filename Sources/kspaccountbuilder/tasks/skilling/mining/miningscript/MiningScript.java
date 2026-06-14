@@ -1,6 +1,7 @@
 package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.miningscript;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ThreadLocalRandom;
@@ -26,6 +27,8 @@ import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.min
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.mining.rocklevel.RockLevel;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.buyscript.Buy;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
+import net.runelite.client.plugins.microbot.util.bank.enums.BankLocation;
+import net.runelite.client.plugins.microbot.util.depositbox.Rs2DepositBox;
 import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.misc.Rs2UiHelper;
@@ -47,6 +50,8 @@ public class MiningScript extends Script
     private static final int ROCK_SEARCH_PADDING_TILES = 8;
     private static final int OUT_OF_AREA_ROCK_FALLBACK_RADIUS = 4;
     private static final int MID_TIER_RANDOM_MAX_LEVEL = 60;
+    private static final String BANK_WALK_KEY = "Mining:bank";
+    private static final String DEPOSIT_BOX_WALK_KEY = "Mining:port-sarim-deposit-box";
     private static final int MUGGER_COMBAT_LEVEL = 6;
     private static final int RAT_COMBAT_LEVEL = 6;
     private static final int SILVER_SAFE_COMBAT_LEVEL = (MUGGER_COMBAT_LEVEL * 2) + 1;
@@ -82,12 +87,18 @@ public class MiningScript extends Script
             ObjectID.COAL_ROCKS_11367,
             ObjectID.COAL_ROCKS_36204
     };
+    private static final int[] GOLD_ROCK_IDS = {
+            ObjectID.GOLD_ROCKS,
+            ObjectID.GOLD_ROCKS_11371,
+            ObjectID.GOLD_ROCKS_36206
+    };
 
     private static final List<String> PICKAXE_NAMES = Buy.PICKAXE_NAME_LIST;
 
     private Areas targetArea = Areas.TIN_COPPER_VARROCK_EAST;
 
     private boolean startingTargetRockInitialized;
+    private int initializedSelectionBand = -1;
     private RockLevel randomMidTierRock;
     private boolean debugLogging;
     private boolean progressiveMining = true;
@@ -157,7 +168,14 @@ public class MiningScript extends Script
                         Rs2Player.getWorldLocation(),
                         targetArea.getDisplayName(),
                         resolveInventoryPickaxeToKeep(miningLevel));
-                bankOresOnly(miningLevel);
+                if (targetArea == Areas.GOLD_RIMMINGTON)
+                {
+                    depositGoldOresAtPortSarim(miningLevel);
+                }
+                else
+                {
+                    bankOresOnly(miningLevel);
+                }
                 return;
             }
 
@@ -481,7 +499,32 @@ public class MiningScript extends Script
     {
         ensureInventoryTabOpen();
 
-        if (!Rs2Bank.walkToBankAndUseBank() && !Rs2Bank.openBank())
+        BankLocation bankLocation = resolveBankLocation();
+        WorldPoint bankPoint = bankLocation.getWorldPoint();
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+
+        if (playerLocation == null)
+        {
+            return;
+        }
+
+        if (!Rs2Bank.isNearBank(bankLocation, 8))
+        {
+            Microbot.status = "Walking to " + bankLocation;
+            KspWalkerGuard.walkToDestination(
+                    BANK_WALK_KEY,
+                    bankLocation::getWorldPoint,
+                    point -> point != null && point.distanceTo(bankPoint) <= 8,
+                    6,
+                    WEB_WALK_COOLDOWN_MS);
+            return;
+        }
+
+        KspWalkerGuard.clearReachedDestination(
+                BANK_WALK_KEY,
+                "ksp_account_builder_mining_reached_bank");
+
+        if (!Rs2Bank.isOpen() && !Rs2Bank.openBank())
         {
             return;
         }
@@ -509,6 +552,77 @@ public class MiningScript extends Script
 
             sleep(300);
             closeBankIfOpen();
+        }
+    }
+
+    private BankLocation resolveBankLocation()
+    {
+        if (targetArea == Areas.TIN_COPPER_VARROCK_EAST || targetArea == Areas.IRON_VARROCK_EAST)
+        {
+            return BankLocation.VARROCK_EAST;
+        }
+
+        if (targetArea == Areas.CLAY_VARROCK_WEST || targetArea == Areas.SILVER_VARROCK_WEST)
+        {
+            return BankLocation.VARROCK_WEST;
+        }
+
+        return BankLocation.EDGEVILLE;
+    }
+
+    private void depositGoldOresAtPortSarim(int miningLevel)
+    {
+        ensureInventoryTabOpen();
+
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        WorldArea depositArea = Areas.PORT_SARIM_DEPOSIT_BOX.toWorldArea();
+
+        if (playerLocation == null)
+        {
+            return;
+        }
+
+        if (!depositArea.contains(playerLocation))
+        {
+            Microbot.status = "Walking to " + Areas.PORT_SARIM_DEPOSIT_BOX.getDisplayName();
+            KspWalkerGuard.walkToDestination(
+                    DEPOSIT_BOX_WALK_KEY,
+                    Areas.PORT_SARIM_DEPOSIT_BOX::getRandomPoint,
+                    depositArea::contains,
+                    3,
+                    WEB_WALK_COOLDOWN_MS);
+            return;
+        }
+
+        KspWalkerGuard.clear(DEPOSIT_BOX_WALK_KEY);
+
+        if (!Rs2DepositBox.openDepositBox())
+        {
+            debug("Could not open Port Sarim deposit box | player={}", playerLocation);
+            return;
+        }
+
+        sleepUntil(Rs2DepositBox::isOpen, 2_000);
+        if (!Rs2DepositBox.isOpen())
+        {
+            return;
+        }
+
+        String pickaxeToKeep = resolveInventoryPickaxeToKeep(miningLevel);
+        List<String> itemsToKeep = pickaxeToKeep == null
+                ? Collections.emptyList()
+                : Collections.singletonList(pickaxeToKeep);
+
+        Rs2DepositBox.depositAllExcept(itemsToKeep, false);
+        sleepUntil(() -> !Rs2Inventory.isFull(), 2_000);
+        debug("Deposited Rimmington gold ore | kept={} invFull={} depositBoxOpen={}",
+                itemsToKeep,
+                Rs2Inventory.isFull(),
+                Rs2DepositBox.isOpen());
+
+        if (Rs2DepositBox.isOpen())
+        {
+            Rs2DepositBox.closeDepositBox();
         }
     }
 
@@ -861,6 +975,11 @@ public class MiningScript extends Script
             return COAL_ROCK_IDS;
         }
 
+        if (targetRock == RockLevel.GOLD)
+        {
+            return GOLD_ROCK_IDS;
+        }
+
         return new int[0];
     }
 
@@ -897,6 +1016,11 @@ public class MiningScript extends Script
         if (targetRock == RockLevel.COAL)
         {
             return Areas.COAL_BARBARIAN_VILLAGE;
+        }
+
+        if (targetRock == RockLevel.GOLD)
+        {
+            return Areas.GOLD_RIMMINGTON;
         }
 
         if (targetRock == RockLevel.SILVER)
@@ -950,7 +1074,8 @@ public class MiningScript extends Script
 
     private void initializeStartingTargetRock(int miningLevel)
     {
-        if (startingTargetRockInitialized)
+        int selectionBand = getSelectionBand(miningLevel);
+        if (startingTargetRockInitialized && initializedSelectionBand == selectionBand)
         {
             return;
         }
@@ -960,19 +1085,27 @@ public class MiningScript extends Script
             List<RockLevel> randomOptions;
             if (canMineIronSafely() && canMineSilverSafely())
             {
-                randomOptions = Arrays.asList(RockLevel.IRON, RockLevel.SILVER, RockLevel.COAL);
+                randomOptions = miningLevel >= RockLevel.GOLD.getRequiredMiningLevel()
+                        ? Arrays.asList(RockLevel.IRON, RockLevel.SILVER, RockLevel.COAL, RockLevel.GOLD)
+                        : Arrays.asList(RockLevel.IRON, RockLevel.SILVER, RockLevel.COAL);
             }
             else if (canMineIronSafely())
             {
-                randomOptions = Arrays.asList(RockLevel.IRON, RockLevel.COAL);
+                randomOptions = miningLevel >= RockLevel.GOLD.getRequiredMiningLevel()
+                        ? Arrays.asList(RockLevel.IRON, RockLevel.COAL, RockLevel.GOLD)
+                        : Arrays.asList(RockLevel.IRON, RockLevel.COAL);
             }
             else if (canMineSilverSafely())
             {
-                randomOptions = Arrays.asList(RockLevel.SILVER, RockLevel.COAL);
+                randomOptions = miningLevel >= RockLevel.GOLD.getRequiredMiningLevel()
+                        ? Arrays.asList(RockLevel.SILVER, RockLevel.COAL, RockLevel.GOLD)
+                        : Arrays.asList(RockLevel.SILVER, RockLevel.COAL);
             }
             else
             {
-                randomOptions = Arrays.asList(RockLevel.COAL);
+                randomOptions = miningLevel >= RockLevel.GOLD.getRequiredMiningLevel()
+                        ? Arrays.asList(RockLevel.COAL, RockLevel.GOLD)
+                        : Arrays.asList(RockLevel.COAL);
             }
 
             randomMidTierRock = randomOptions.get(ThreadLocalRandom.current().nextInt(randomOptions.size()));
@@ -985,6 +1118,17 @@ public class MiningScript extends Script
         }
 
         startingTargetRockInitialized = true;
+        initializedSelectionBand = selectionBand;
+    }
+
+    private int getSelectionBand(int miningLevel)
+    {
+        if (!shouldRandomizeMidTierRock(miningLevel))
+        {
+            return 0;
+        }
+
+        return miningLevel >= RockLevel.GOLD.getRequiredMiningLevel() ? 2 : 1;
     }
 
     private boolean canMineSilverSafely()
@@ -1061,9 +1205,12 @@ public class MiningScript extends Script
     public void shutdown()
     {
         startingTargetRockInitialized = false;
+        initializedSelectionBand = -1;
         randomMidTierRock = null;
         walkingToTargetArea = false;
         KspWalkerGuard.clear("Mining:target-area");
+        KspWalkerGuard.clear(BANK_WALK_KEY);
+        KspWalkerGuard.clear(DEPOSIT_BOX_WALK_KEY);
         lastWebWalkAtMs = 0L;
         lastObjectInteractionAtMs = 0L;
         lastUnderAttackAtMs = 0L;

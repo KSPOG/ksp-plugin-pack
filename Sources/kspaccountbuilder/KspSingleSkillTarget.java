@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.combat.melee.areas.CombatAreas;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.cooking.areas.Areas;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.crafting.clevels.CraftingLevels;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.firemaking.fmarea.FireArea;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smithing.smithlevels.SmithLevels;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.smelting.barlevel.BarLevels;
@@ -53,6 +54,23 @@ public enum KspSingleSkillTarget
 
     COOKING_EDGEVILLE(KspTrainSingleSkillTask.COOKING, "Edgeville", Areas.EDGEVILLE_RANGE),
     COOKING_LUMBRIDGE(KspTrainSingleSkillTask.COOKING, "Lumbridge", Areas.LUMBRIDGE_KITCHEN),
+
+    CRAFTING_LEATHER_GLOVES(KspTrainSingleSkillTask.CRAFTING, "Leather gloves", CraftingLevels.LEATHER_GLOVES),
+    CRAFTING_GOLD_RING(KspTrainSingleSkillTask.CRAFTING, "Gold ring", CraftingLevels.GOLD_RING),
+    CRAFTING_GOLD_NECKLACE(KspTrainSingleSkillTask.CRAFTING, "Gold necklace", CraftingLevels.GOLD_NECKLACE),
+    CRAFTING_CUT_SAPPHIRE(KspTrainSingleSkillTask.CRAFTING, "Cut sapphire", CraftingLevels.CUT_SAPPHIRE),
+    CRAFTING_SAPPHIRE_RING(KspTrainSingleSkillTask.CRAFTING, "Sapphire ring", CraftingLevels.SAPPHIRE_RING),
+    CRAFTING_SAPPHIRE_NECKLACE(KspTrainSingleSkillTask.CRAFTING, "Sapphire necklace", CraftingLevels.SAPPHIRE_NECKLACE),
+    CRAFTING_TIARA(KspTrainSingleSkillTask.CRAFTING, "Tiara", CraftingLevels.TIARA),
+    CRAFTING_CUT_EMERALD(KspTrainSingleSkillTask.CRAFTING, "Cut emerald", CraftingLevels.CUT_EMERALD),
+    CRAFTING_EMERALD_RING(KspTrainSingleSkillTask.CRAFTING, "Emerald ring", CraftingLevels.EMERALD_RING),
+    CRAFTING_EMERALD_NECKLACE(KspTrainSingleSkillTask.CRAFTING, "Emerald necklace", CraftingLevels.EMERALD_NECKLACE),
+    CRAFTING_CUT_RUBY(KspTrainSingleSkillTask.CRAFTING, "Cut ruby", CraftingLevels.CUT_RUBY),
+    CRAFTING_RUBY_RING(KspTrainSingleSkillTask.CRAFTING, "Ruby ring", CraftingLevels.RUBY_RING),
+    CRAFTING_RUBY_NECKLACE(KspTrainSingleSkillTask.CRAFTING, "Ruby necklace", CraftingLevels.RUBY_NECKLACE),
+    CRAFTING_CUT_DIAMOND(KspTrainSingleSkillTask.CRAFTING, "Cut diamond", CraftingLevels.CUT_DIAMOND),
+    CRAFTING_DIAMOND_RING(KspTrainSingleSkillTask.CRAFTING, "Diamond ring", CraftingLevels.DIAMOND_RING),
+    CRAFTING_DIAMOND_NECKLACE(KspTrainSingleSkillTask.CRAFTING, "Diamond necklace", CraftingLevels.DIAMOND_NECKLACE),
 
     MELEE_COWS(KspTrainSingleSkillTask.MELEE, "Cows", CombatAreas.COWPEN),
     MELEE_CHICKENS(KspTrainSingleSkillTask.MELEE, "Chickens", CombatAreas.CHICKENS),

@@ -31,6 +31,7 @@
 package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.sellscript;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -55,6 +56,7 @@ import net.runelite.client.plugins.microbot.kspaccountbuilder.KspWalkerGuard;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.questing.cooksassistant.reqs.Items;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.questing.goblindip.reqs.GobReqs;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.buyscript.Buy;
+import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.buyscript.BuyScript;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.gearea.GEArea;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.sell.SellList;
 import net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.selling.sellscript.SellState;
@@ -89,8 +91,29 @@ extends Script {
     private static final int TIME_PLAYED_WIDGET_ID = 46661634;
     private static final String[] PICKAXE_NAMES = Buy.PICKAXE_NAMES;
     private static final String[] AXE_NAMES = Buy.AXE_NAMES;
+    private static final long BUY_AFFORDABILITY_CACHE_MS = 3_000L;
+    private static final Set<SellList> PROTECTED_SKILL_RESOURCES = EnumSet.of(
+            SellList.LOGS,
+            SellList.OAK_LOGS,
+            SellList.YEW_LOGS,
+            SellList.COWHIDE,
+            SellList.RAW_CHICKEN,
+            SellList.SMALL_FISHING_NET,
+            SellList.FISHING_ROD,
+            SellList.FISHING_BAIT,
+            SellList.SILVER_ORE,
+            SellList.SILVER_BAR,
+            SellList.LIMPWURT_ROOT,
+            SellList.EARTH_TALISMAN,
+            SellList.BODY_TALISMAN,
+            SellList.TUNA,
+            SellList.LOBSTER,
+            SellList.SWORDFISH,
+            SellList.SPINACH_ROLL);
     @Inject
     private KspAccountPlayTimeCache accountPlayTimeCache;
+    @Inject
+    private BuyScript buyScript;
     private GEArea targetArea = GEArea.GRAND_EXCHANGE;
     private boolean debugLogging;
     private long lastWebWalkAtMs;
@@ -100,6 +123,8 @@ extends Script {
     private Boolean tradeRestrictionUnlockedCache;
     private Integer cachedHoursPlayed;
     private long lastTradeRestrictionCheckAtMs;
+    private long lastBuyAffordabilityCheckAtMs;
+    private boolean cachedBuyAffordability;
     private boolean attemptedHoursPlayedLookup;
     private SellState state = SellState.GOING_TO_GE;
     private boolean complete;
@@ -365,6 +390,9 @@ extends Script {
         if (sellList.isTradeRestricted() && !this.hasUnlockedTradeRestrictedItems()) {
             return false;
         }
+        if (PROTECTED_SKILL_RESOURCES.contains(sellList) && !this.canAffordGeBuyRequirements()) {
+            return false;
+        }
         int firemakingLevel = Microbot.getClient().getRealSkillLevel(Skill.FIREMAKING);
         if (sellList == SellList.LOGS) {
             return firemakingLevel >= 15;
@@ -439,14 +467,33 @@ extends Script {
 
     private Rs2ItemModel getNextSellableInventoryItem() {
         List<String> sellNames = this.getAllowedSellNames();
+        for (Rs2ItemModel item : Rs2Inventory.all()) {
+            if (item == null
+                    || item.getName() == null
+                    || this.isBlockedSellItem(item.getName())
+                    || this.getSellableInventoryQuantity(item.getName(), item.getQuantity()) <= 0) {
+                continue;
+            }
+
+            if (sellNames.stream().anyMatch(name -> name.equalsIgnoreCase(item.getName()))) {
+                return item;
+            }
+        }
+
+        if (!this.canAffordGeBuyRequirements()) {
+            return null;
+        }
+
         String desiredPickaxe = this.resolveDesiredPickaxeName();
         String desiredAxe = this.resolveDesiredAxeName();
         for (Rs2ItemModel item : Rs2Inventory.all()) {
             if (item == null
                     || item.getName() == null
                     || this.isBlockedSellItem(item.getName())
-                    || this.getSellableInventoryQuantity(item.getName(), item.getQuantity()) <= 0
-                    || !sellNames.stream().anyMatch(name -> name.equalsIgnoreCase(item.getName())) && !this.isOutdatedToolName(item.getName(), desiredPickaxe, desiredAxe)) continue;
+                    || !this.isOutdatedToolName(item.getName(), desiredPickaxe, desiredAxe)) {
+                continue;
+            }
+
             return item;
         }
         return null;
@@ -462,6 +509,10 @@ extends Script {
     }
 
     private boolean withdrawOutdatedToolsAsNotes() {
+        if (!this.canAffordGeBuyRequirements()) {
+            return false;
+        }
+
         boolean withdrew;
         boolean withdrewAny = false;
         String desiredPickaxe = this.resolveDesiredPickaxeName();
@@ -482,6 +533,10 @@ extends Script {
     }
 
     private boolean hasOutdatedToolInBank() {
+        if (!this.canAffordGeBuyRequirements()) {
+            return false;
+        }
+
         String desiredPickaxe = this.resolveDesiredPickaxeName();
         String desiredAxe = this.resolveDesiredAxeName();
         for (String pickaxeName : PICKAXE_NAMES) {
@@ -493,6 +548,20 @@ extends Script {
             return true;
         }
         return false;
+    }
+
+    private boolean canAffordGeBuyRequirements() {
+        long now = System.currentTimeMillis();
+        if (now - this.lastBuyAffordabilityCheckAtMs < BUY_AFFORDABILITY_CACHE_MS) {
+            return this.cachedBuyAffordability;
+        }
+
+        this.cachedBuyAffordability = this.buyScript.canAffordMissingBuys();
+        this.lastBuyAffordabilityCheckAtMs = now;
+        if (!this.cachedBuyAffordability) {
+            this.debug("Protecting required skill resources and pickaxes/axes; ordinary SellList products remain eligible");
+        }
+        return this.cachedBuyAffordability;
     }
 
     private boolean isOutdatedToolName(String itemName, String desiredPickaxe, String desiredAxe) {
@@ -731,6 +800,8 @@ extends Script {
         this.tradeRestrictionUnlockedCache = null;
         this.cachedHoursPlayed = null;
         this.lastTradeRestrictionCheckAtMs = 0L;
+        this.lastBuyAffordabilityCheckAtMs = 0L;
+        this.cachedBuyAffordability = false;
         this.attemptedHoursPlayedLookup = false;
         this.complete = false;
         KspWalkerGuard.clear("GE Sell:target-area");

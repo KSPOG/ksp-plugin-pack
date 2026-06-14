@@ -59,6 +59,7 @@ extends Script {
     private static final int SMITHING_WIDGET_CONTAINER_CHILD_ID = 1;
     private static final int SMITHING_ALL_BUTTON_CHILD_ID = 7;
     private static final int ANVIL_MAKE_VARBIT_PLAYER = 2224;
+    private static final WorldPoint VARROCK_WEST_ANVIL_APPROACH_POINT = new WorldPoint(3188, 3424, 0);
     private static final String TARGET_AREA_WALK_KEY = "Smithing:target-area";
     private static final String ANVIL_WALK_KEY = "Smithing:anvil";
     private long lastWebWalkAtMs;
@@ -306,7 +307,7 @@ extends Script {
 
         if (KspWalkerGuard.walkToDestination(
                 TARGET_AREA_WALK_KEY,
-                this.targetArea::getRandomPoint,
+                this::getTargetAreaWalkPoint,
                 this.targetArea.toWorldArea()::contains,
                 2,
                 WEB_WALK_COOLDOWN_MS)) {
@@ -321,6 +322,15 @@ extends Script {
             this.markExistingTargetAreaWalkIfActive();
         }
         return false;
+    }
+
+
+    private WorldPoint getTargetAreaWalkPoint() {
+        if (this.targetArea == SmithArea.SMITH_AREA_VARROCK_WEST_ANVIL) {
+            return VARROCK_WEST_ANVIL_APPROACH_POINT;
+        }
+
+        return this.targetArea.getRandomPoint();
     }
 
     private void markExistingTargetAreaWalkIfActive() {

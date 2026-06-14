@@ -3,7 +3,6 @@ package net.runelite.client.plugins.microbot.kspaccountbuilder.tasks.skilling.fi
 import java.awt.event.KeyEvent;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import javax.inject.Singleton;
 import net.runelite.api.ItemID;
@@ -49,9 +48,12 @@ public class FishingScript extends Script
     private static final int FISHING_SPOT_INTERACTION_DISTANCE = 8;
     private static final int MIN_KARAMJA_COINS = 60;
     private static final int KARAMJA_COIN_RESERVE = 2_000;
-    private static final int TROUT_SALMON_FIRE_ID = 4375;
+    private static final int TROUT_SALMON_FIRE_ID = 43475;
     private static final int NO_COOKING_BATCH = -1;
     private static final String WALK_KEY_TO_FISHING_AREA = "Fishing:target-area";
+    private static final String WALK_KEY_TO_TROUT_SALMON_FIRE = "Fishing:trout-salmon-fire";
+    private static final WorldPoint TROUT_SALMON_WALK_POSITION = new WorldPoint(3104, 3431, 0);
+    private static final WorldPoint TROUT_SALMON_FIRE_POSITION = new WorldPoint(3106, 3432, 0);
 
     private volatile Areas targetArea = Areas.SHRIMP_ANCHOVIES;
     private LevelReqs targetFish = LevelReqs.SHRIMP;
@@ -190,19 +192,42 @@ public class FishingScript extends Script
             return LevelReqs.bestForFishingLevel(fishingLevel);
         }
 
-        if (randomLevel50Fish == null)
+        LevelReqs preferredFish = selectPreferredLevel50Fish();
+        if (preferredFish != randomLevel50Fish)
         {
-            List<LevelReqs> options = List.of(
-                    LevelReqs.SALMON,
-                    LevelReqs.SWORDFISH,
-                    LevelReqs.LOBSTER);
-            randomLevel50Fish = options.get(ThreadLocalRandom.current().nextInt(options.size()));
+            randomLevel50Fish = preferredFish;
             debug("Selected level 50 fishing mode | mode={} targetFish={}",
                     getFishingModeName(randomLevel50Fish),
                     randomLevel50Fish.getDisplayName());
         }
 
         return randomLevel50Fish;
+    }
+
+    private LevelReqs selectPreferredLevel50Fish()
+    {
+        if (hasAvailableItem("Harpoon") && hasAvailableKaramjaFare())
+        {
+            return LevelReqs.SWORDFISH;
+        }
+
+        if (hasAvailableItem("Lobster pot") && hasAvailableKaramjaFare())
+        {
+            return LevelReqs.LOBSTER;
+        }
+
+        return LevelReqs.SALMON;
+    }
+
+    private boolean hasAvailableItem(String itemName)
+    {
+        return Rs2Inventory.hasItem(itemName) || Rs2Bank.count(itemName) > 0;
+    }
+
+    private boolean hasAvailableKaramjaFare()
+    {
+        return Rs2Inventory.itemQuantity(ItemID.COINS_995) + Math.max(0, Rs2Bank.count(ItemID.COINS_995))
+                >= MIN_KARAMJA_COINS;
     }
 
     private String getFishingModeName(LevelReqs fish)
@@ -279,17 +304,35 @@ public class FishingScript extends Script
             return true;
         }
 
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        if (playerLocation == null)
+        {
+            return true;
+        }
+
+        if (playerLocation.distanceTo(TROUT_SALMON_FIRE_POSITION) > 2)
+        {
+            Microbot.status = "Walking to trout/salmon fire";
+            KspWalkerGuard.walkToPoint(
+                    WALK_KEY_TO_TROUT_SALMON_FIRE,
+                    TROUT_SALMON_FIRE_POSITION,
+                    2,
+                    WEB_WALK_COOLDOWN_MS);
+            return true;
+        }
+
         Rs2TileObjectModel fire = Microbot.getRs2TileObjectCache().query()
                 .fromWorldView()
                 .withId(TROUT_SALMON_FIRE_ID)
                 .nearest();
         if (fire == null)
         {
-            Microbot.status = "Waiting for nearby cooking fire";
-            debug("Could not find trout/salmon fire | id={} player={}",
+            debug("Could not find trout/salmon fire; banking raw fish instead | id={} expected={} player={}",
                     TROUT_SALMON_FIRE_ID,
-                    Rs2Player.getWorldLocation());
-            return true;
+                    TROUT_SALMON_FIRE_POSITION,
+                    playerLocation);
+            resetCookingBatch();
+            return false;
         }
 
         expectingCookingXpDrop = false;
@@ -447,7 +490,7 @@ public class FishingScript extends Script
         Microbot.status = "Walking to " + targetArea.getDisplayName();
         if (KspWalkerGuard.walkToDestination(
                 WALK_KEY_TO_FISHING_AREA,
-                targetArea::getRandomPoint,
+                this::getTargetAreaWalkPoint,
                 area::contains,
                 3,
                 WEB_WALK_COOLDOWN_MS))
@@ -461,6 +504,16 @@ public class FishingScript extends Script
         }
 
         return false;
+    }
+
+    private WorldPoint getTargetAreaWalkPoint()
+    {
+        if (targetArea == Areas.TROUT_SALMON)
+        {
+            return TROUT_SALMON_WALK_POSITION;
+        }
+
+        return targetArea.getRandomPoint();
     }
 
     private void clearTargetAreaWalkIfNeeded()

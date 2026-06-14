@@ -54,6 +54,13 @@ public class TutorialIslandScript extends Script
     private static final int LOOP_DELAY_MS = 600;
     private static final int DEFAULT_CAMERA_ZOOM = 377;
     private static final int NAME_ATTEMPT_COOLDOWN_MS = 3500;
+    private static final int CHARACTER_ATTEMPT_COOLDOWN_MS = 3500;
+    private static final int CHARACTER_CONFIRM_RETRIES = 3;
+    private static final int CHARACTER_CONFIRM_TIMEOUT_MS = 2500;
+    private static final int RAT_PEN_GATE_ID = 9719;
+    private static final int RAT_PEN_INNER_BOUNDARY_X = 3110;
+    private static final int ACCOUNT_GUIDE_DOOR_ID = 9721;
+    private static final int ACCOUNT_GUIDE_ROOM_MIN_X = 3125;
     private static final int COMPLETION_LOGOUT_RETRY_MS = 6000;
     private static final int QUEUE_LOGIN_RETRY_MS = 10000;
     private static final int QUEUE_LOGIN_SKIP_MS = 60000;
@@ -73,11 +80,15 @@ public class TutorialIslandScript extends Script
     private static final int BODY_TYPE_A_CHILD = 68;
     private static final int BODY_TYPE_B_CHILD = 69;
     private static final int CHARACTER_CONFIRM_BUTTON_CHILD = 74;
+    private static final int FIXED_VIEWPORT_GROUP = 164;
+    private static final int SETTINGS_TAB_CHILD = 41;
+    private static final int SETTINGS_PANEL_GROUP = 116;
 
     private static final String DISPLAY_NAME_TITLE = "Set display name";
     private static final String LOOK_UP_NAME_BUTTON = "Look up name";
     private static final String CHARACTER_CREATOR_TITLE = "Character Creator";
     private static final String EXPERIENCE_PROMPT_TITLE = "How familiar are you with Old School RuneScape?";
+    private static final String SETTINGS_TUTORIAL_PROMPT = "flashing icon of a spanner";
 
     private static final String[] EXPERIENCE_OPTION_TEXTS = {
             "I'm brand new! This is my first time here.",
@@ -113,6 +124,7 @@ public class TutorialIslandScript extends Script
     private static final WorldArea TUTORIAL_END_AREA     = TutAreas.TUTORIAL_END_AREA;
 
     private long lastNameAttemptAtMs;
+    private long lastCharacterAttemptAtMs;
     private String lastGeneratedName = "None";
     private String lastCharacterAction = "Waiting";
     private String lastExperienceSelection = "None";
@@ -165,9 +177,36 @@ public class TutorialIslandScript extends Script
                     return;
                 }
 
-                if (isInStartArea() && isExperiencePromptOpen())
+                if (isExperiencePromptOpen())
                 {
                     selectRandomExperienceOption();
+                    return;
+                }
+
+                if (isDisplayNameWidgetOpen())
+                {
+                    status = Status.NAME;
+                    if (!isNameAttemptCoolingDown())
+                    {
+                        enterGeneratedName();
+                        lastNameAttemptAtMs = System.currentTimeMillis();
+                    }
+                    return;
+                }
+
+                if (isCharacterCreationWidgetOpen())
+                {
+                    status = Status.CHARACTER;
+                    if (!isCharacterAttemptCoolingDown())
+                    {
+                        lastCharacterAttemptAtMs = System.currentTimeMillis();
+                        randomizeCharacter();
+                    }
+                    return;
+                }
+
+                if (openSettingsTabForTutorialPrompt())
+                {
                     return;
                 }
 
@@ -185,17 +224,8 @@ public class TutorialIslandScript extends Script
                 switch (status)
                 {
                     case NAME:
-                        if (isInStartArea() && isDisplayNameWidgetOpen() && !isNameAttemptCoolingDown())
-                        {
-                            enterGeneratedName();
-                            lastNameAttemptAtMs = System.currentTimeMillis();
-                        }
                         break;
                     case CHARACTER:
-                        if (isInStartArea() && isCharacterCreationWidgetOpen())
-                        {
-                            randomizeCharacter();
-                        }
                         break;
                     case GETTING_STARTED:
                         gettingStarted();
@@ -242,13 +272,23 @@ public class TutorialIslandScript extends Script
     {
         try
         {
-            if (!Microbot.isLoggedIn() || Microbot.getVarbitPlayerValue(281) >= 1000)
+            if (!Microbot.isLoggedIn())
             {
                 return false;
             }
 
-            WorldPoint location = Rs2Player.getWorldLocation();
-            return isTutorialIslandLocation(location);
+            if (isDisplayNameWidgetOpenStatic() || isCharacterCreationWidgetOpenStatic() || isExperiencePromptOpenStatic())
+            {
+                return true;
+            }
+
+            WorldPoint location = getLocalPlayerWorldLocationSafe();
+            if (isTutorialIslandLocation(location))
+            {
+                return true;
+            }
+
+            return Microbot.getVarbitPlayerValue(281) < 1000;
         }
         catch (Exception ignored)
         {
@@ -256,9 +296,73 @@ public class TutorialIslandScript extends Script
         }
     }
 
+    public static boolean isInTutorialIslandArea()
+    {
+        try
+        {
+            if (!Microbot.isLoggedIn())
+            {
+                return false;
+            }
+
+            WorldPoint location = getLocalPlayerWorldLocationSafe();
+            return location != null
+                    && (TutAreas.TUT_OVERWORLD_AREA.contains(location)
+                    || TutAreas.TUTORIAL_ISLAND_UNDERGROUND_AREA.contains(location));
+        }
+        catch (Exception ignored)
+        {
+            return false;
+        }
+    }
+
+    public static boolean isPreTutorialBlockingWidgetOpen()
+    {
+        return isDisplayNameWidgetOpenStatic() || isCharacterCreationWidgetOpenStatic() || isExperiencePromptOpenStatic();
+    }
+
     private static boolean isTutorialIslandLocation(WorldPoint location)
     {
-        return TutAreas.contains(location);
+        return location != null && TutAreas.contains(location);
+    }
+
+    private static WorldPoint getLocalPlayerWorldLocationSafe()
+    {
+        try
+        {
+            Client client = Microbot.getClient();
+            if (client == null || client.getLocalPlayer() == null)
+            {
+                return null;
+            }
+            return client.getLocalPlayer().getWorldLocation();
+        }
+        catch (Exception ignored)
+        {
+            return null;
+        }
+    }
+
+    private static boolean isDisplayNameWidgetOpenStatic()
+    {
+        return Rs2Widget.isWidgetVisible(NAME_CREATION_GROUP, NAME_CREATION_CONTAINER_CHILD)
+                || (Rs2Widget.hasWidget(DISPLAY_NAME_TITLE) && Rs2Widget.hasWidget(LOOK_UP_NAME_BUTTON));
+    }
+
+    private static boolean isCharacterCreationWidgetOpenStatic()
+    {
+        return Rs2Widget.isWidgetVisible(CHARACTER_CREATION_GROUP, CHARACTER_CREATION_CONTAINER_CHILD)
+                || Rs2Widget.isWidgetVisible(CHARACTER_CREATION_GROUP, CHARACTER_CONFIRM_BUTTON_CHILD)
+                || Rs2Widget.hasWidget(CHARACTER_CREATOR_TITLE);
+    }
+
+    private static boolean isExperiencePromptOpenStatic()
+    {
+        return Rs2Dialogue.isInDialogue()
+                && (Rs2Widget.hasWidget(EXPERIENCE_PROMPT_TITLE)
+                || Rs2Widget.hasWidget(EXPERIENCE_OPTION_TEXTS[0])
+                || Rs2Widget.hasWidget(EXPERIENCE_OPTION_TEXTS[1])
+                || Rs2Widget.hasWidget(EXPERIENCE_OPTION_TEXTS[2]));
     }
 
     public boolean isComplete()
@@ -348,20 +452,18 @@ public class TutorialIslandScript extends Script
 
     private boolean isInStartArea()
     {
-        WorldPoint location = Rs2Player.getWorldLocation();
+        WorldPoint location = getLocalPlayerWorldLocationSafe();
         return location != null && START_AREA.contains(location);
     }
 
     private boolean isDisplayNameWidgetOpen()
     {
-        return Rs2Widget.isWidgetVisible(NAME_CREATION_GROUP, NAME_CREATION_CONTAINER_CHILD)
-                || (Rs2Widget.hasWidget(DISPLAY_NAME_TITLE) && Rs2Widget.hasWidget(LOOK_UP_NAME_BUTTON));
+        return isDisplayNameWidgetOpenStatic();
     }
 
     private boolean isCharacterCreationWidgetOpen()
     {
-        return Rs2Widget.isWidgetVisible(CHARACTER_CREATION_GROUP, CHARACTER_CREATION_CONTAINER_CHILD)
-                || Rs2Widget.hasWidget(CHARACTER_CREATOR_TITLE);
+        return isCharacterCreationWidgetOpenStatic();
     }
 
     private boolean isExperiencePromptOpen()
@@ -376,6 +478,31 @@ public class TutorialIslandScript extends Script
     private boolean isNameAttemptCoolingDown()
     {
         return System.currentTimeMillis() - lastNameAttemptAtMs < NAME_ATTEMPT_COOLDOWN_MS;
+    }
+
+    private boolean isCharacterAttemptCoolingDown()
+    {
+        return System.currentTimeMillis() - lastCharacterAttemptAtMs < CHARACTER_ATTEMPT_COOLDOWN_MS;
+    }
+
+    private boolean openSettingsTabForTutorialPrompt()
+    {
+        String dialogueText = Rs2Dialogue.getDialogueText();
+        if (dialogueText == null
+                || !dialogueText.toLowerCase().contains(SETTINGS_TUTORIAL_PROMPT))
+        {
+            return false;
+        }
+
+        if (!Rs2Widget.clickWidget(FIXED_VIEWPORT_GROUP, SETTINGS_TAB_CHILD))
+        {
+            debug("Failed to click the Tutorial Island Settings tab widget.");
+            return true;
+        }
+
+        sleepUntil(() -> Rs2Widget.isWidgetVisible(SETTINGS_PANEL_GROUP, 0)
+                || Rs2Widget.hasWidget("Controls Settings"), 3000);
+        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -461,15 +588,58 @@ public class TutorialIslandScript extends Script
         selectRandomBodyType();
         sleep(randomDelay(450, 900));
 
+        List<Integer> arrows = new ArrayList<>(CHARACTER_CREATION_ARROWS.length);
         for (int arrowBaseChild : CHARACTER_CREATION_ARROWS)
         {
-            clickRandomCharacterArrow(arrowBaseChild);
+            arrows.add(arrowBaseChild);
+        }
+        Collections.shuffle(arrows);
+
+        int arrowsToClick = ThreadLocalRandom.current().nextInt(5, arrows.size() + 1);
+        for (int i = 0; i < arrowsToClick; i++)
+        {
+            clickRandomCharacterArrow(arrows.get(i));
             sleep(randomDelay(90, 240));
         }
 
         sleep(randomDelay(700, 1400));
-        Rs2Widget.clickWidget(CHARACTER_CREATION_GROUP, CHARACTER_CONFIRM_BUTTON_CHILD);
-        lastCharacterAction = "Confirmed";
+        lastCharacterAction = "Confirming";
+        if (confirmCharacterSelection())
+        {
+            lastCharacterAction = "Confirmed";
+        }
+        else
+        {
+            lastCharacterAction = "Confirm failed";
+            debug("Character customization failed: the Confirm button did not close the creator.");
+        }
+    }
+
+    private boolean confirmCharacterSelection()
+    {
+        for (int attempt = 0; attempt < CHARACTER_CONFIRM_RETRIES; attempt++)
+        {
+            boolean clicked = Rs2Widget.clickWidget(
+                    CHARACTER_CREATION_GROUP,
+                    CHARACTER_CONFIRM_BUTTON_CHILD);
+
+            if (!clicked)
+            {
+                Widget confirmWidget = Rs2Widget.findWidget("Confirm", null, false);
+                clicked = confirmWidget != null && Rs2Widget.clickWidget(confirmWidget);
+            }
+
+            if (clicked && sleepUntil(
+                    () -> !isCharacterCreationWidgetOpen(),
+                    CHARACTER_CONFIRM_TIMEOUT_MS))
+            {
+                return true;
+            }
+
+            sleep(randomDelay(300, 650));
+        }
+
+        return false;
     }
 
     private void selectRandomBodyType()
@@ -482,16 +652,18 @@ public class TutorialIslandScript extends Script
     {
         int arrowChild = arrowBaseChild + (ThreadLocalRandom.current().nextBoolean() ? 2 : 3);
         int clickCount = ThreadLocalRandom.current().nextInt(1, 8);
-        Widget arrowWidget = Rs2Widget.getWidget(CHARACTER_CREATION_GROUP, arrowChild);
 
-        if (arrowWidget == null)
+        if (!Rs2Widget.isWidgetVisible(CHARACTER_CREATION_GROUP, arrowChild))
         {
             return;
         }
 
         for (int i = 0; i < clickCount; i++)
         {
-            Rs2Widget.clickWidget(arrowWidget.getId());
+            if (!Rs2Widget.clickWidget(CHARACTER_CREATION_GROUP, arrowChild))
+            {
+                return;
+            }
             sleep(randomDelay(120, 360));
         }
     }
@@ -650,27 +822,21 @@ public class TutorialIslandScript extends Script
             return false;
         }
 
-        if (npc.click("Talk-to"))
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        if (playerLocation == null)
         {
-            sleepUntil(Rs2Dialogue::isInDialogue, 5_000);
-            return true;
+            return false;
         }
 
-        /*
-         * The Account Guide can be close by tile distance while still separated by
-         * the room wall. If the direct click fails, force the local walker into the
-         * guide's room instead of treating "nearby" as reachable.
-         */
-        walkTutorialLocal(npc.getWorldLocation(), 1);
-        Rs2Player.waitForWalking();
-
-        if (npc.click("Talk-to"))
+        if (playerLocation.getX() < ACCOUNT_GUIDE_ROOM_MIN_X)
         {
-            sleepUntil(Rs2Dialogue::isInDialogue, 5_000);
-            return true;
+            Microbot.getRs2TileObjectCache().query().fromWorldView()
+                    .withId(ACCOUNT_GUIDE_DOOR_ID)
+                    .interact("Open");
+            return false;
         }
 
-        return false;
+        return walkAndTalk(npc, 1);
     }
 
     private boolean talkToSurvivalExpert()
@@ -805,10 +971,8 @@ public class TutorialIslandScript extends Script
 
         if (Rs2Inventory.contains("Bronze dagger"))
         {
-            openTutorialPassageAndWalk(
+            openTutorialPassage(
                     ObjectID.GATE_9718,
-                    new WorldPoint(3107, 9509, 0),
-                    3,
                     () -> Microbot.getVarbitPlayerValue(281) > 360 || isInArea(COMBAT_INSTRUCTOR_AREA));
             return;
         }
@@ -997,7 +1161,7 @@ public class TutorialIslandScript extends Script
                 clickContinue();
                 return;
             }
-            walkAndTalk(npc);
+            walkToAccountGuideRoomAndTalk(npc);
         }
     }
 
@@ -1423,47 +1587,40 @@ public class TutorialIslandScript extends Script
 
     private boolean walkAndAttackRat()
     {
-        WorldPoint insidePen = new WorldPoint(3102, 9518, 0);
         WorldPoint playerLocation = Rs2Player.getWorldLocation();
 
-        if (playerLocation == null || !RAT_PIT_AREA.contains(playerLocation))
+        if (!isInsideRatPen(playerLocation))
         {
             if (!ensureInsideRatPen())
             {
                 return false;
             }
-            playerLocation = Rs2Player.getWorldLocation();
         }
 
-        if (playerLocation == null || playerLocation.distanceTo(insidePen) > 3)
-        {
-            walkTutorialLocal(insidePen, 2);
-            return false;
-        }
-
-        Rs2NpcModel rat = Microbot.getRs2NpcCache().query().fromWorldView().withName("Giant rat").nearest();
-        if (rat == null || rat.getWorldLocation() == null)
-        {
-            return false;
-        }
-        return rat.click("Attack");
+        return attackNearestRat();
     }
 
     private boolean ensureInsideRatPen()
     {
         WorldPoint playerLocation = Rs2Player.getWorldLocation();
-        WorldPoint insidePen = new WorldPoint(3102, 9518, 0);
 
-        if (playerLocation != null && RAT_PIT_AREA.contains(playerLocation))
+        if (isInsideRatPen(playerLocation))
         {
             return true;
         }
 
-        return openTutorialPassageAndWalk(
-                9719,
-                insidePen,
-                2,
-                () -> isInArea(RAT_PIT_AREA));
+        Microbot.getRs2TileObjectCache().query().fromWorldView().withId(RAT_PEN_GATE_ID).interact("Open");
+        return false;
+    }
+
+    private boolean isInsideRatPen(WorldPoint location)
+    {
+        return location != null
+                && location.getPlane() == RAT_PIT_AREA.getPlane()
+                && location.getX() >= RAT_PIT_AREA.getX()
+                && location.getX() <= RAT_PEN_INNER_BOUNDARY_X
+                && location.getY() >= RAT_PIT_AREA.getY()
+                && location.getY() < RAT_PIT_AREA.getY() + RAT_PIT_AREA.getHeight();
     }
 
     private boolean attackNearestRat()
@@ -1996,4 +2153,3 @@ public class TutorialIslandScript extends Script
         FINISHED
     }
 }
-

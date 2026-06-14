@@ -149,6 +149,45 @@ public final class KspSingleSkillConfigTarget
         }
     }
 
+    public enum Crafting implements TargetOption
+    {
+        NONE(KspSingleSkillTarget.NONE),
+        PROGRESSIVE(KspSingleSkillTarget.AUTOMATIC),
+        LEATHER_GLOVES(KspSingleSkillTarget.CRAFTING_LEATHER_GLOVES),
+        GOLD_RING(KspSingleSkillTarget.CRAFTING_GOLD_RING),
+        GOLD_NECKLACE(KspSingleSkillTarget.CRAFTING_GOLD_NECKLACE),
+        CUT_SAPPHIRE(KspSingleSkillTarget.CRAFTING_CUT_SAPPHIRE),
+        SAPPHIRE_RING(KspSingleSkillTarget.CRAFTING_SAPPHIRE_RING),
+        SAPPHIRE_NECKLACE(KspSingleSkillTarget.CRAFTING_SAPPHIRE_NECKLACE),
+        TIARA(KspSingleSkillTarget.CRAFTING_TIARA),
+        CUT_EMERALD(KspSingleSkillTarget.CRAFTING_CUT_EMERALD),
+        EMERALD_RING(KspSingleSkillTarget.CRAFTING_EMERALD_RING),
+        EMERALD_NECKLACE(KspSingleSkillTarget.CRAFTING_EMERALD_NECKLACE),
+        CUT_RUBY(KspSingleSkillTarget.CRAFTING_CUT_RUBY),
+        RUBY_RING(KspSingleSkillTarget.CRAFTING_RUBY_RING),
+        RUBY_NECKLACE(KspSingleSkillTarget.CRAFTING_RUBY_NECKLACE),
+        CUT_DIAMOND(KspSingleSkillTarget.CRAFTING_CUT_DIAMOND),
+        DIAMOND_RING(KspSingleSkillTarget.CRAFTING_DIAMOND_RING),
+        DIAMOND_NECKLACE(KspSingleSkillTarget.CRAFTING_DIAMOND_NECKLACE);
+
+        private final KspSingleSkillTarget target;
+
+        Crafting(KspSingleSkillTarget target)
+        {
+            this.target = target;
+        }
+
+        public KspSingleSkillTarget getTarget()
+        {
+            return target;
+        }
+
+        public String toString()
+        {
+            return this == PROGRESSIVE ? "Progressive" : target.toString();
+        }
+    }
+
     public enum Smithing implements TargetOption
     {
         NONE(KspSingleSkillTarget.NONE),

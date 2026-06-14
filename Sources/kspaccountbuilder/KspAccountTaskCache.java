@@ -21,7 +21,9 @@ public class KspAccountTaskCache
 {
     public enum OneTimeTask
     {
-        STRONGHOLD_OF_SECURITY
+        STRONGHOLD_OF_SECURITY,
+        ROMEO_AND_JULIET,
+        RUNE_MYSTERIES
     }
 
     private static final String CACHE_FILE_NAME = "ksp-account-builder-task-state.json";

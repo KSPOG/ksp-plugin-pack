@@ -8,7 +8,6 @@ import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
 import net.runelite.api.Skill;
 import net.runelite.api.coords.WorldPoint;
-import net.runelite.api.gameval.ObjectID;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.Script;
 import net.runelite.client.plugins.microbot.api.tileobject.models.Rs2TileObjectModel;
@@ -34,11 +33,13 @@ public class CookingScript extends Script
     private static final int LOOP_DELAY_MS = 600;
     private static final int WALK_COOLDOWN_MS = 3_000;
     private static final int EDGEVILLE_STOVE_ID = 12269;
+    private static final int LUMBRIDGE_RANGE_ID = 114;
     private static final int COOKING_EXIT_DOOR_ID = 1535;
     private static final int PRODUCTION_WIDGET_GROUP = 270;
     private static final int PRODUCTION_WIDGET_CONTAINER_CHILD = 13;
     private static final WorldPoint EDGEVILLE_COOKING_TILE = new WorldPoint(3079, 3494, 0);
-    private static final WorldPoint LUMBRIDGE_COOKING_TILE = new WorldPoint(3208, 3214, 0);
+    private static final WorldPoint LUMBRIDGE_KITCHEN_ENTRY_TILE = new WorldPoint(3208, 3214, 0);
+    private static final WorldPoint LUMBRIDGE_RANGE_LOCATION = new WorldPoint(3212, 3215, 0);
     private static final WorldPoint COOKING_EXIT_DOOR_POINT = new WorldPoint(3079, 3497, 0);
     private static final WorldPoint COOKING_EXIT_OUTSIDE_POINT = new WorldPoint(3080, 3498, 0);
     private static final long DOOR_INTERACTION_COOLDOWN_MS = 2_000L;
@@ -257,7 +258,10 @@ public class CookingScript extends Script
         WorldPoint playerLocation = Rs2Player.getWorldLocation();
         if (targetArea.getArea().contains(playerLocation))
         {
-            KspWalkerGuard.clear(WALK_KEY);
+            KspWalkerGuard.clearReachedDestination(
+                    WALK_KEY,
+                    "ksp_cooking_reached_cooking_area");
+            KspWalkerGuard.clearActiveWalker("ksp_cooking_inside_cooking_area");
             return true;
         }
 
@@ -282,9 +286,29 @@ public class CookingScript extends Script
             return null;
         }
 
+        if (targetArea == Areas.LUMBRIDGE_KITCHEN)
+        {
+            Rs2TileObjectModel range = Microbot.getRs2TileObjectCache().query()
+                    .fromWorldView()
+                    .withId(LUMBRIDGE_RANGE_ID)
+                    .within(LUMBRIDGE_RANGE_LOCATION, 3)
+                    .nearestOnClientThread();
+
+            if (range == null)
+            {
+                KspTaskDebug.throttled(log, debugLogging, "Cooking", "lumbridge-range-not-found", 5_000L,
+                        "Lumbridge range not found | expectedId={} expectedLocation={} player={}",
+                        LUMBRIDGE_RANGE_ID,
+                        LUMBRIDGE_RANGE_LOCATION,
+                        playerLocation);
+            }
+
+            return range;
+        }
+
         return Microbot.getClientThread().invoke(() -> Microbot.getRs2TileObjectCache().query()
                 .fromWorldView()
-                .withId(getCookingStoveId())
+                .withId(EDGEVILLE_STOVE_ID)
                 .within(playerLocation, 12)
                 .where(object -> targetArea.getArea().contains(object.getWorldLocation()))
                 .nearestReachable(12));
@@ -302,15 +326,8 @@ public class CookingScript extends Script
     private WorldPoint getCookingTile()
     {
         return targetArea == Areas.LUMBRIDGE_KITCHEN
-                ? LUMBRIDGE_COOKING_TILE
+                ? LUMBRIDGE_KITCHEN_ENTRY_TILE
                 : EDGEVILLE_COOKING_TILE;
-    }
-
-    private int getCookingStoveId()
-    {
-        return targetArea == Areas.LUMBRIDGE_KITCHEN
-                ? ObjectID.COOKSQUESTRANGE
-                : EDGEVILLE_STOVE_ID;
     }
 
     private boolean selectProductionOption(String itemName)

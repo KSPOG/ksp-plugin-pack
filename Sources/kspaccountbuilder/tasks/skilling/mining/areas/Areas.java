@@ -33,6 +33,16 @@ public enum Areas
             "Barbarian Village Coal",
             new WorldPoint(3079, 3418, 0),
             new WorldPoint(3085, 3422, 0)
+    ),
+    GOLD_RIMMINGTON(
+            "Rimmington Gold Mine",
+            new WorldPoint(2973, 3235, 0),
+            new WorldPoint(2979, 3231, 0)
+    ),
+    PORT_SARIM_DEPOSIT_BOX(
+            "Port Sarim Deposit Box",
+            new WorldPoint(3044, 3237, 0),
+            new WorldPoint(3052, 3234, 0)
     );
 
     private final String displayName;

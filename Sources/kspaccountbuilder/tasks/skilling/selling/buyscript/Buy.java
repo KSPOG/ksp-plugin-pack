@@ -288,24 +288,126 @@ public final class Buy
     )
     {
         List<String> desired = new ArrayList<>();
-        addIfPresent(desired, getBestMeleeWeapon(attackLevel));
-        addIfPresent(desired, getBestMeleeArmour(defenceLevel, "full helm"));
-        addIfPresent(desired, getBestMeleeArmour(defenceLevel, "kiteshield"));
-        addIfPresent(desired, getBestMeleeArmour(defenceLevel, "platelegs"));
-        addIfPresent(desired, getBestMeleeBodyArmour(defenceLevel, dragonSlayerCompleted));
-        addIfPresent(desired, Amulet.AMULET_OF_POWER.getDisplayName());
-        addIfPresent(desired, Capes.TEAM_1_CAPE.getDisplayName());
-
         List<String> missing = new ArrayList<>();
-        for (String item : desired)
+
+        String availableWeapon = getBestAvailableMeleeWeapon(attackLevel, itemAvailable);
+        if (availableWeapon != null)
         {
-            if (itemAvailable == null || !itemAvailable.test(item))
-            {
-                missing.add(item);
-            }
+            desired.add(availableWeapon);
+        }
+        else
+        {
+            String requiredWeapon = getBestMeleeWeapon(attackLevel);
+            addIfPresent(desired, requiredWeapon);
+            addIfPresent(missing, requiredWeapon);
         }
 
+        addIfPresent(desired, getBestAvailableMeleeArmour(defenceLevel, "full helm", itemAvailable));
+
+        String shield = getBestAvailableMeleeArmour(defenceLevel, "kiteshield", itemAvailable);
+        if (shield == null && itemAvailable != null && itemAvailable.test("Wooden shield"))
+        {
+            shield = "Wooden shield";
+        }
+        addIfPresent(desired, shield);
+
+        addIfPresent(desired, getBestAvailableMeleeArmour(defenceLevel, "platelegs", itemAvailable));
+        addIfPresent(desired, getBestAvailableMeleeBodyArmour(
+                defenceLevel,
+                dragonSlayerCompleted,
+                itemAvailable));
+
+        String amulet = Amulet.AMULET_OF_POWER.getDisplayName();
+        if (itemAvailable == null || itemAvailable.test(amulet))
+        {
+            desired.add(amulet);
+        }
+
+        String cape = getBestAvailableCape(itemAvailable);
+        addIfPresent(desired, cape);
+
         return new MeleeGearPlan(desired, missing);
+    }
+
+    private static String getBestAvailableMeleeWeapon(int attackLevel, Predicate<String> itemAvailable)
+    {
+        if (itemAvailable == null)
+        {
+            return getBestMeleeWeapon(attackLevel);
+        }
+
+        return Arrays.stream(Weapons.values())
+                .filter(weapon -> attackLevel >= weapon.getRequiredAttackLevel())
+                .sorted(Comparator.comparingInt(Weapons::getRequiredAttackLevel)
+                        .thenComparingInt(Enum::ordinal)
+                        .reversed())
+                .map(Weapons::getDisplayName)
+                .filter(itemAvailable)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static String getBestAvailableMeleeArmour(
+            int defenceLevel,
+            String marker,
+            Predicate<String> itemAvailable)
+    {
+        if (itemAvailable == null)
+        {
+            return getBestMeleeArmour(defenceLevel, marker);
+        }
+
+        return Arrays.stream(Armour.values())
+                .filter(armour -> defenceLevel >= armour.getRequiredDefenceLevel())
+                .filter(armour -> armour.getDisplayName().toLowerCase(Locale.ENGLISH).contains(marker))
+                .sorted(Comparator.comparingInt(Armour::getRequiredDefenceLevel)
+                        .thenComparingInt(Enum::ordinal)
+                        .reversed())
+                .map(Armour::getDisplayName)
+                .filter(itemAvailable)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static String getBestAvailableMeleeBodyArmour(
+            int defenceLevel,
+            boolean dragonSlayerCompleted,
+            Predicate<String> itemAvailable)
+    {
+        if (itemAvailable == null)
+        {
+            return getBestMeleeBodyArmour(defenceLevel, dragonSlayerCompleted);
+        }
+
+        return Arrays.stream(Armour.values())
+                .filter(armour -> defenceLevel >= armour.getRequiredDefenceLevel())
+                .filter(armour -> {
+                    String name = armour.getDisplayName().toLowerCase(Locale.ENGLISH);
+                    return name.contains("platebody") || name.contains("chainbody");
+                })
+                .filter(armour -> dragonSlayerCompleted
+                        || armour != Armour.RUNE_PLATEBODY)
+                .sorted(Comparator.comparingInt(Armour::getRequiredDefenceLevel)
+                        .thenComparingInt(Enum::ordinal)
+                        .reversed())
+                .map(Armour::getDisplayName)
+                .filter(itemAvailable)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static String getBestAvailableCape(Predicate<String> itemAvailable)
+    {
+        if (itemAvailable == null)
+        {
+            return Capes.TEAM_1_CAPE.getDisplayName();
+        }
+
+        return Arrays.stream(Capes.values())
+                .map(Capes::getDisplayName)
+                .filter(itemAvailable)
+                .findFirst()
+                .orElse(null);
     }
 
     public static String getBestMeleeWeapon(int attackLevel)

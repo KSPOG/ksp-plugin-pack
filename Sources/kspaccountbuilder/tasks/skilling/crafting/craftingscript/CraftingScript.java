@@ -40,19 +40,26 @@ public class CraftingScript extends Script
     private volatile CraftingState state = CraftingState.WAITING;
     private volatile CraftingLevels targetLevel = CraftingLevels.LEATHER_GLOVES;
     private volatile CraftInventory targetRecipe = CraftInventory.LEATHER_GLOVES;
+    private boolean progressiveCrafting = true;
     private boolean debugLogging;
     private long lastActionAtMs;
     private boolean expectingXpDrop;
 
     public boolean run()
     {
-        return run(CraftingLevels.LEATHER_GLOVES);
+        return run(CraftingLevels.LEATHER_GLOVES, true);
     }
 
     public boolean run(CraftingLevels fallbackLevel)
     {
+        return run(fallbackLevel, true);
+    }
+
+    public boolean run(CraftingLevels selectedLevel, boolean progressiveCrafting)
+    {
         shutdown();
-        targetLevel = fallbackLevel == null ? CraftingLevels.LEATHER_GLOVES : fallbackLevel;
+        this.progressiveCrafting = progressiveCrafting;
+        targetLevel = selectedLevel == null ? CraftingLevels.LEATHER_GLOVES : selectedLevel;
         targetRecipe = CraftInventory.valueOf(targetLevel.name());
         state = CraftingState.CHECKING_RESOURCES;
 
@@ -63,7 +70,10 @@ public class CraftingScript extends Script
                 return;
             }
 
-            selectTargetRecipe();
+            if (this.progressiveCrafting)
+            {
+                selectTargetRecipe();
+            }
             KspTaskDebug.throttled(log, debugLogging, "Crafting", "loop", 5_000L,
                     "loop | state={} recipe={} player={} moving={} animating={} interacting={} bankOpen={}",
                     state,

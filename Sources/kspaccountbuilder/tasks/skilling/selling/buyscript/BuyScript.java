@@ -392,7 +392,7 @@ public class BuyScript extends Script {
                 budget.getDetails()
         );
 
-        if (budget.estimatedCost <= 0L || budget.hasEnoughCoins()) {
+        if (budget.estimatedCost <= 0L || budget.getAvailableCoins() > 0L) {
             return true;
         }
 
@@ -447,7 +447,7 @@ public class BuyScript extends Script {
         this.calculateSmithingOreNeeds();
         this.calculateCraftingNeeds();
         BuyBudget budget = this.calculateMissingBuyBudget(desiredPickaxe, desiredAxe);
-        return budget.estimatedCost <= 0L || budget.hasEnoughCoins();
+        return budget.estimatedCost <= 0L || budget.getAvailableCoins() > 0L;
     }
 
     private void addToolToBudgetIfMissing(BuyBudget budget, String itemName) {
@@ -1121,26 +1121,44 @@ public class BuyScript extends Script {
             String missingTool = this.getNextMissingToolToBuy(desiredPickaxe, desiredAxe);
 
             if (missingTool != null) {
-                if (!this.placeFallbackBuyOffer(missingTool)) {
-                    break;
+                int toolPrice = this.getAdjustedBuyPrice(missingTool);
+                if (this.canAffordQuantity(1, toolPrice)) {
+                    if (!this.placeFallbackBuyOffer(missingTool)) {
+                        break;
+                    }
+
+                    placedOffer = true;
+                    availableSlots = Rs2GrandExchange.getAvailableSlotsCount();
+                    continue;
                 }
 
-                placedOffer = true;
-                availableSlots = Rs2GrandExchange.getAvailableSlotsCount();
-                continue;
+                this.debug("Skipping unaffordable GE tool for current balance | item={} price={} coins={}",
+                        missingTool,
+                        toolPrice,
+                        this.getCurrentSpendableCoins());
             }
 
             String fishingSupply = this.getNextFishingSupplyToBuy();
             int fishingSupplyQuantity = this.getFishingSupplyQuantityToBuy(fishingSupply);
 
             if (fishingSupply != null && fishingSupplyQuantity > 0) {
-                if (!this.placeFishingSupplyBuyOffer(fishingSupply, fishingSupplyQuantity)) {
-                    break;
+                int unitPrice = this.getAdjustedBuyPrice(fishingSupply);
+                int affordableQuantity = this.getAffordableQuantity(fishingSupplyQuantity, unitPrice);
+                if (affordableQuantity > 0) {
+                    if (!this.placeFishingSupplyBuyOffer(fishingSupply, affordableQuantity)) {
+                        break;
+                    }
+
+                    placedOffer = true;
+                    availableSlots = Rs2GrandExchange.getAvailableSlotsCount();
+                    continue;
                 }
 
-                placedOffer = true;
-                availableSlots = Rs2GrandExchange.getAvailableSlotsCount();
-                continue;
+                this.debug("Skipping unaffordable GE supply for current balance | item={} requested={} unitPrice={} coins={}",
+                        fishingSupply,
+                        fishingSupplyQuantity,
+                        unitPrice,
+                        this.getCurrentSpendableCoins());
             }
 
             this.calculateSmithingOreNeeds();
@@ -1152,12 +1170,34 @@ public class BuyScript extends Script {
                 break;
             }
 
-            if (!this.placeOreBuyOffer(oreToBuy, oreQuantity)) {
+            int oreUnitPrice = this.getAdjustedBuyPrice(oreToBuy);
+            int affordableOreQuantity = this.getAffordableQuantity(oreQuantity, oreUnitPrice);
+            if (affordableOreQuantity <= 0) {
+                this.debug("Skipping unaffordable GE ore for current balance | item={} requested={} unitPrice={} coins={}",
+                        oreToBuy,
+                        oreQuantity,
+                        oreUnitPrice,
+                        this.getCurrentSpendableCoins());
+                break;
+            }
+
+            if (!this.placeOreBuyOffer(oreToBuy, affordableOreQuantity)) {
                 break;
             }
 
             placedOffer = true;
             availableSlots = Rs2GrandExchange.getAvailableSlotsCount();
+        }
+
+        if (!placedOffer
+                && this.pendingMissingToolBuys.isEmpty()
+                && this.pendingFishingSupplyBuys.isEmpty()
+                && this.pendingOreBuys.isEmpty()
+                && this.hasMissingBuyRequirement(desiredPickaxe, desiredAxe)) {
+            Microbot.status = "No affordable GE buys remain";
+            this.insufficientCoinsForMissingBuys = true;
+            this.complete = true;
+            return;
         }
 
         if (!placedOffer
@@ -1205,12 +1245,18 @@ public class BuyScript extends Script {
 
         Microbot.status = "Buying " + quantity + "x " + itemName;
 
+        int buyPrice = this.getAdjustedBuyPrice(itemName);
+        quantity = this.getAffordableQuantity(quantity, buyPrice);
+        if (quantity <= 0) {
+            return false;
+        }
+
         GrandExchangeRequest request = GrandExchangeRequest.builder()
                 .action(GrandExchangeAction.BUY)
                 .itemName(itemName)
                 .exact(true)
                 .quantity(quantity)
-                .percent(10)
+                .price(buyPrice)
                 .closeAfterCompletion(false)
                 .build();
 
@@ -1219,9 +1265,10 @@ public class BuyScript extends Script {
         boolean offered = Rs2GrandExchange.processOffer(request);
 
         this.debug(
-                "GE ore buy offer | item={} qty={} percent=10 offered={} slots={}",
+                "GE ore buy offer | item={} qty={} price={} offered={} slots={}",
                 itemName,
                 quantity,
+                buyPrice,
                 offered,
                 Rs2GrandExchange.isOpen() ? Rs2GrandExchange.getAvailableSlotsCount() : -1
         );
@@ -1245,12 +1292,18 @@ public class BuyScript extends Script {
 
         Microbot.status = "Buying " + quantity + "x " + itemName;
 
+        int buyPrice = this.getAdjustedBuyPrice(itemName);
+        quantity = this.getAffordableQuantity(quantity, buyPrice);
+        if (quantity <= 0) {
+            return false;
+        }
+
         GrandExchangeRequest request = GrandExchangeRequest.builder()
                 .action(GrandExchangeAction.BUY)
                 .itemName(itemName)
                 .exact(true)
                 .quantity(quantity)
-                .percent(10)
+                .price(buyPrice)
                 .closeAfterCompletion(false)
                 .build();
 
@@ -1259,9 +1312,10 @@ public class BuyScript extends Script {
         boolean offered = Rs2GrandExchange.processOffer(request);
 
         this.debug(
-                "GE fishing-supply buy offer | item={} qty={} percent=10 offered={} slots={}",
+                "GE fishing-supply buy offer | item={} qty={} price={} offered={} slots={}",
                 itemName,
                 quantity,
+                buyPrice,
                 offered,
                 Rs2GrandExchange.isOpen() ? Rs2GrandExchange.getAvailableSlotsCount() : -1
         );
@@ -1717,6 +1771,13 @@ public class BuyScript extends Script {
 
         Microbot.status = "Buying " + itemName;
         int buyPrice = this.getAdjustedBuyPrice(itemName);
+        if (!this.canAffordQuantity(1, buyPrice)) {
+            this.debug("Cannot afford GE tool offer | item={} price={} coins={}",
+                    itemName,
+                    buyPrice,
+                    this.getCurrentSpendableCoins());
+            return false;
+        }
 
         GrandExchangeRequest request = GrandExchangeRequest.builder()
                 .action(GrandExchangeAction.BUY)
@@ -1746,6 +1807,25 @@ public class BuyScript extends Script {
         }
 
         return offered;
+    }
+
+    private long getCurrentSpendableCoins() {
+        return Math.max(0L, Rs2Inventory.itemQuantity(995));
+    }
+
+    private boolean canAffordQuantity(int quantity, int unitPrice) {
+        return quantity > 0
+                && unitPrice > 0
+                && getCurrentSpendableCoins() >= (long) quantity * unitPrice;
+    }
+
+    private int getAffordableQuantity(int requestedQuantity, int unitPrice) {
+        if (requestedQuantity <= 0 || unitPrice <= 0) {
+            return 0;
+        }
+
+        long affordableQuantity = getCurrentSpendableCoins() / unitPrice;
+        return (int) Math.min(requestedQuantity, Math.min(Integer.MAX_VALUE, affordableQuantity));
     }
 
     private boolean handlePendingMissingToolBuys(String desiredPickaxe, String desiredAxe) {

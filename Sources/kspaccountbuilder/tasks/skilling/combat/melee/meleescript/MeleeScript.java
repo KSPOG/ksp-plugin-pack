@@ -58,7 +58,7 @@ public class MeleeScript
     private static final int TARGET_FOOD_COUNT = Buy.MELEE_TARGET_FOOD_COUNT;
     private static final int CHICKEN_TARGET_COMBAT_STAT_LEVEL = 15;
     private static final int LOOT_RADIUS = 12;
-    private static final long ATTACKER_MEMORY_MS = 3_000L;
+    private static final long NO_FOOD_CONFIRMATION_MS = 2_500L;
     private static final WorldPoint CHICKEN_WALK_TARGET = new WorldPoint(3177, 3298, 0);
     private static final WorldPoint CHICKEN_GATE_EAST = new WorldPoint(3262, 3321, 0);
     private static final WorldPoint CHICKEN_GATE_WEST = new WorldPoint(3261, 3321, 0);
@@ -66,6 +66,7 @@ public class MeleeScript
     private static final int CHICKEN_GATE_WEST_ID = 1558;
     private static final int CHICKEN_GATE_INTERACTION_DISTANCE = 12;
     private static final int CHICKEN_COMBAT_RADIUS = 6;
+    private static final int PASSIVE_ATTACKER_MAX_DISTANCE = 3;
     private static final String[] CHICKEN_LOOT_NAMES = {"Bones", "Feather", "Raw chicken"};
     private static final List<String> IGNORED_COMBAT_NPC_NAMES = Arrays.asList("skeleton", "hobgoblin");
     private static final WorldPoint EDGEVILLE_TRAPDOOR = new WorldPoint(3096, 3468, 0);
@@ -79,8 +80,7 @@ public class MeleeScript
     private long lastWebWalkAtMs;
     private WorldPoint lastWalkTarget;
     private CombatAreas forcedCombatArea;
-    private int lastAttackerIndex = -1;
-    private long lastAttackerAtMs;
+    private long lastConfirmedFoodAtMs;
     private volatile boolean pendingSellHandoff;
 
     public void setDebugLogging(boolean debugLogging) {
@@ -95,6 +95,7 @@ public class MeleeScript
         this.shutdown();
         this.pendingSellHandoff = false;
         this.forcedCombatArea = forcedCombatArea;
+        this.lastConfirmedFoodAtMs = System.currentTimeMillis();
         this.setStatus("Starting melee training");
         this.state = CombatState.PREPARING;
         this.mainScheduledFuture = this.scheduledExecutorService.scheduleWithFixedDelay(() -> {
@@ -103,7 +104,6 @@ public class MeleeScript
                     return;
                 }
                 TrainingStage stage = this.resolveTrainingStage();
-                this.updateAttackerMemory(stage);
                 KspTaskDebug.throttled(log, this.debugLogging, "Melee", "loop", 5_000L,
                         "loop | state={} status={} area={} npc={} player={} moving={} animating={} interacting={} inCombat={} hp={}/{} bankOpen={}",
                         this.state,
@@ -114,7 +114,7 @@ public class MeleeScript
                         Rs2Player.isMoving(),
                         Rs2Player.isAnimating(),
                         Rs2Player.isInteracting(),
-                        this.isActivelyFighting(),
+                        this.isActivelyFighting(stage),
                         Microbot.getClient().getBoostedSkillLevel(Skill.HITPOINTS),
                         Microbot.getClient().getRealSkillLevel(Skill.HITPOINTS),
                         Rs2Bank.isOpen());
@@ -122,7 +122,7 @@ public class MeleeScript
                     this.state = CombatState.PREPARING;
                     return;
                 }
-                if (this.buryBonesInInventory()) {
+                if (this.buryBonesInInventory(stage)) {
                     this.state = CombatState.PREPARING;
                     return;
                 }
@@ -157,11 +157,11 @@ public class MeleeScript
                     this.lootOwnDrops(stage);
                     return;
                 }
-                if (this.isActivelyFighting()) {
+                if (this.isActivelyFighting(stage)) {
                     this.state = CombatState.FIGHTING;
                     this.handleHealing();
                     this.ensureBalancedAttackStyle();
-                    if (this.isActivelyFighting()) {
+                    if (this.isActivelyFighting(stage)) {
                         this.setStatus("Fighting " + stage.primaryNpc.getDisplayName());
                     }
                     return;
@@ -241,8 +241,8 @@ public class MeleeScript
         return false;
     }
 
-    private boolean buryBonesInInventory() {
-        if (Rs2Player.isMoving() || this.isActivelyFighting()) {
+    private boolean buryBonesInInventory(TrainingStage stage) {
+        if (Rs2Player.isMoving() || this.isActivelyFighting(stage)) {
             return false;
         }
         List<Rs2ItemModel> bones = Rs2Inventory.getBones();
@@ -285,7 +285,25 @@ public class MeleeScript
         }
 
         int foodCount = this.getFoodCountInInventory();
-        if (requiresCombatFood(stage) && foodCount < TARGET_FOOD_COUNT) {
+        if (foodCount > 0) {
+            this.lastConfirmedFoodAtMs = System.currentTimeMillis();
+        } else if (requiresCombatFood(stage)) {
+            long noFoodObservedForMs = System.currentTimeMillis() - this.lastConfirmedFoodAtMs;
+            if (Rs2Player.isAnimating()
+                    || this.isActivelyFighting(stage)
+                    || noFoodObservedForMs < NO_FOOD_CONFIRMATION_MS) {
+                KspTaskDebug.throttled(log, this.debugLogging, "Melee", "no-food-confirmation", 1_000L,
+                        "Delaying no-food bank decision | observedForMs={} animating={} activelyFighting={} inventoryEmptySlots={}",
+                        noFoodObservedForMs,
+                        Rs2Player.isAnimating(),
+                        this.isActivelyFighting(stage),
+                        Rs2Inventory.emptySlotCount());
+                return false;
+            }
+
+            this.debug("Banking after confirmed no-food state | observedForMs={} area={}",
+                    noFoodObservedForMs,
+                    stage.area.getDisplayName());
             return this.shouldBankForNoFood(stage);
         }
         if (Rs2Inventory.isFull() && this.projectedFreeSlotsAfterBury() <= 0) {
@@ -395,7 +413,7 @@ public class MeleeScript
     }
 
     private boolean lootOwnDrops(TrainingStage stage) {
-        if (Rs2Player.isMoving() || this.isActivelyFighting()) {
+        if (Rs2Player.isMoving() || this.isActivelyFighting(stage)) {
             return false;
         }
         Rs2TileItemModel loot = this.findNearestLoot(stage);
@@ -604,15 +622,16 @@ public class MeleeScript
         if (stage == null || localPlayer == null || playerLocation == null) {
             return;
         }
-        Rs2NpcModel currentAttacker = findPriorityAttacker(stage, localPlayer, playerLocation);
+        Rs2NpcModel currentAttacker = findNpcAttackingPlayer(localPlayer, playerLocation, stage);
         if (currentAttacker != null) {
             this.setStatus("Fighting " + currentAttacker.getName());
             KspTaskDebug.throttled(log, this.debugLogging, "Melee", "already-under-attack", 3_000L,
-                    "Skipping new target; npc is already attacking player | attacker={} id={} loc={} playerInteracting={}",
+                    "Skipping new target; player is actively fighting attacker | attacker={} id={} loc={} playerInteracting={} animating={}",
                     currentAttacker.getName(),
                     currentAttacker.getId(),
                     currentAttacker.getWorldLocation(),
-                    currentInteracting);
+                    currentInteracting,
+                    Rs2Player.isAnimating());
             return;
         }
         ArrayList<String> npcNames = new ArrayList<String>();
@@ -645,7 +664,7 @@ public class MeleeScript
                     stage.area.getDisplayName());
             return;
         }
-        if (Objects.equals(currentInteracting, target.getNpc())) {
+        if (Objects.equals(currentInteracting, target.getNpc()) && Rs2Player.isAnimating()) {
             this.setStatus("Fighting " + target.getName());
             return;
         }
@@ -659,8 +678,8 @@ public class MeleeScript
                     target.getHealthRatio());
             return;
         }
-        currentAttacker = findPriorityAttacker(stage, localPlayer, playerLocation);
-        if (currentAttacker != null || isActivelyFighting()) {
+        currentAttacker = findNpcAttackingPlayer(localPlayer, playerLocation, stage);
+        if (isActivelyFighting(stage)) {
             this.setStatus("Fighting " + (currentAttacker != null
                     ? currentAttacker.getName()
                     : stage.primaryNpc.getDisplayName()));
@@ -722,8 +741,15 @@ public class MeleeScript
     }
 
     private boolean isActivelyFighting() {
+        return isActivelyFighting(resolveTrainingStage());
+    }
+
+    private boolean isActivelyFighting(TrainingStage stage) {
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
         Actor interacting = Rs2Player.getInteracting();
         if (interacting != null
+                && playerLocation != null
+                && isActiveCombatLocation(interacting.getWorldLocation(), stage)
                 && !this.isIgnoredCombatNpc(interacting.getName())
                 && interacting.getCombatLevel() > 0
                 && interacting.getHealthRatio() != 0) {
@@ -731,98 +757,29 @@ public class MeleeScript
         }
 
         Player localPlayer = Microbot.getClient().getLocalPlayer();
-        WorldPoint playerLocation = Rs2Player.getWorldLocation();
-        return localPlayer != null
-                && playerLocation != null
-                && (findNpcAttackingPlayer(localPlayer, playerLocation) != null
-                    || findRememberedAttacker(playerLocation) != null);
-    }
-
-    private void updateAttackerMemory(TrainingStage stage) {
-        if (stage == null || stage.area != CombatAreas.HILL_GIANTS) {
-            clearAttackerMemory();
-            return;
-        }
-
-        Player localPlayer = Microbot.getClient().getLocalPlayer();
-        WorldPoint playerLocation = Rs2Player.getWorldLocation();
-        Rs2NpcModel attacker = findNpcAttackingPlayer(localPlayer, playerLocation);
-        if (attacker == null || !isStageTarget(attacker, stage) || attacker.getNpc() == null) {
-            return;
-        }
-
-        lastAttackerIndex = attacker.getNpc().getIndex();
-        lastAttackerAtMs = System.currentTimeMillis();
-    }
-
-    private Rs2NpcModel findPriorityAttacker(
-            TrainingStage stage,
-            Player localPlayer,
-            WorldPoint playerLocation) {
-        Rs2NpcModel currentAttacker = findNpcAttackingPlayer(localPlayer, playerLocation);
-        if (currentAttacker != null) {
-            if (stage != null
-                    && stage.area == CombatAreas.HILL_GIANTS
-                    && isStageTarget(currentAttacker, stage)
-                    && currentAttacker.getNpc() != null) {
-                lastAttackerIndex = currentAttacker.getNpc().getIndex();
-                lastAttackerAtMs = System.currentTimeMillis();
-            }
-            return currentAttacker;
-        }
-
-        if (stage == null || stage.area != CombatAreas.HILL_GIANTS) {
-            return null;
-        }
-
-        Rs2NpcModel rememberedAttacker = findRememberedAttacker(playerLocation);
-        return isStageTarget(rememberedAttacker, stage) ? rememberedAttacker : null;
-    }
-
-    private Rs2NpcModel findRememberedAttacker(WorldPoint playerLocation) {
-        if (lastAttackerIndex < 0
-                || playerLocation == null
-                || System.currentTimeMillis() - lastAttackerAtMs >= ATTACKER_MEMORY_MS) {
-            clearAttackerMemory();
-            return null;
-        }
-
-        Rs2NpcModel rememberedAttacker = Microbot.getRs2NpcCache().query()
-                .fromWorldView()
-                .where(npc -> npc != null
-                        && npc.getNpc() != null
-                        && npc.getNpc().getIndex() == lastAttackerIndex
-                        && !npc.isDead()
-                        && !this.isIgnoredCombatNpc(npc.getName())
-                        && npc.getWorldLocation() != null)
-                .toListOnClientThread()
-                .stream()
-                .findFirst()
-                .orElse(null);
-
-        if (rememberedAttacker == null) {
-            clearAttackerMemory();
-        }
-        return rememberedAttacker;
-    }
-
-    private boolean isStageTarget(Rs2NpcModel npc, TrainingStage stage) {
-        if (npc == null || npc.getName() == null || stage == null) {
+        if (localPlayer == null || playerLocation == null) {
             return false;
         }
 
-        String npcName = npc.getName().trim();
-        return npcName.equalsIgnoreCase(stage.primaryNpc.getDisplayName())
-                || (stage.secondaryNpc != null
-                    && npcName.equalsIgnoreCase(stage.secondaryNpc.getDisplayName()));
+        return findNpcAttackingPlayer(localPlayer, playerLocation, stage) != null
+                || (Rs2Combat.inCombat()
+                    && stage.area.contains(playerLocation)
+                    && (Rs2Player.isAnimating() || Rs2Player.isInteracting()));
     }
 
-    private void clearAttackerMemory() {
-        lastAttackerIndex = -1;
-        lastAttackerAtMs = 0L;
+    private boolean isActiveCombatLocation(WorldPoint location, TrainingStage stage) {
+        if (location == null || stage == null) {
+            return false;
+        }
+
+        return this.isLocationInTargetArea(location, stage);
     }
 
     private Rs2NpcModel findNpcAttackingPlayer(Player localPlayer, WorldPoint playerLocation) {
+        return findNpcAttackingPlayer(localPlayer, playerLocation, resolveTrainingStage());
+    }
+
+    private Rs2NpcModel findNpcAttackingPlayer(Player localPlayer, WorldPoint playerLocation, TrainingStage stage) {
         if (localPlayer == null || playerLocation == null) {
             return null;
         }
@@ -833,7 +790,9 @@ public class MeleeScript
                         && !npc.isDead()
                         && npc.getCombatLevel() > 0
                         && !this.isIgnoredCombatNpc(npc.getName())
-                        && npc.getWorldLocation() != null
+                        && this.isActiveCombatLocation(npc.getWorldLocation(), stage)
+                        && (Rs2Player.isInteracting()
+                            || npc.getWorldLocation().distanceTo(playerLocation) <= PASSIVE_ATTACKER_MAX_DISTANCE)
                         && Objects.equals(npc.getInteracting(), localPlayer))
                 .toListOnClientThread()
                 .stream()
@@ -909,11 +868,6 @@ public class MeleeScript
     private GearPlan buildGearPlan() {
         int attackLevel = this.getSkillLevel(Skill.ATTACK);
         int defenceLevel = this.getSkillLevel(Skill.DEFENCE);
-        if (attackLevel < CHICKEN_TARGET_COMBAT_STAT_LEVEL
-                || this.getSkillLevel(Skill.STRENGTH) < CHICKEN_TARGET_COMBAT_STAT_LEVEL
-                || defenceLevel < CHICKEN_TARGET_COMBAT_STAT_LEVEL) {
-            return new GearPlan(Arrays.asList("Bronze sword", "Wooden shield"));
-        }
 
         Buy.MeleeGearPlan buyPlan = Buy.buildMeleeGearPlan(
                 attackLevel,
@@ -931,11 +885,6 @@ public class MeleeScript
     }
 
     private boolean hasCurrentTaskWeaponEquippedOrInInventory() {
-        TrainingStage stage = this.resolveTrainingStage();
-        if (stage.primaryNpc == NPC.CHICKEN) {
-        return this.hasWeaponEquippedOrInInventory("Bronze sword");
-    }
-
         return this.getBestOwnedWeaponUpToCurrentLevel() != null;
     }
 
@@ -1040,7 +989,6 @@ public class MeleeScript
     public void shutdown() {
         this.lastWebWalkAtMs = 0L;
         this.lastWalkTarget = null;
-        this.clearAttackerMemory();
         KspWalkerGuard.clear("Melee:target-area");
         KspWalkerGuard.clear("Melee:hill-giants-entry");
         this.state = CombatState.PREPARING;

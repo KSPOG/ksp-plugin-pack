@@ -85,7 +85,9 @@ public class KSPAccountBuilderOverlay extends OverlayPanel
             }
         }
 
-        if (config.enableActivitySwitchRandomization() && !config.trainSingleSkill())
+        if (config.enableActivitySwitchRandomization()
+                && !config.trainSingleSkill()
+                && !config.runSingleQuest())
         {
             panelComponent.getChildren().add(LineComponent.builder()
                     .left("Time till activity change:")
