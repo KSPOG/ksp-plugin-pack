@@ -269,9 +269,14 @@ public final class KspTransportFileLoader
                 throw new IllegalArgumentException("Unknown type '" + rawType + "'. Use NPC, NPC_ID, OBJECT, or OBJECT_ID");
         }
 
-        if (dialogue != null && dialogue.length > 0)
+        String requirementRaw = KspRequirementParser.extractRequirement(dialogue, 0);
+        builder.requirement(KspRequirementParser.parse(requirementRaw));
+
+        String[] cleanDialogue = KspRequirementParser.nonRequirementFields(dialogue, 0);
+
+        if (cleanDialogue.length > 0)
         {
-            builder.dialogueOptions(dialogue);
+            builder.dialogueOptions(cleanDialogue);
         }
 
         return builder.build();

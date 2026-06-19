@@ -1,0 +1,31 @@
+# KSP Walker explicit edge database
+#
+# Use this file for things the generic walker cannot safely infer:
+# - region links
+# - unusual object names/actions
+# - stairs/ladders/caves/gates
+# - explicit multi-plane transitions
+# - long-distance route anchor edges
+#
+# Runtime file:
+# %USERPROFILE%\.kspwalker\kspwalker_edges.txt
+#
+# WALK / REGION EDGES
+WALK_EDGE | varrock_square_to_west_bank | 3212,3429,0 | 3185,3436,0 | 30
+#
+# OBJECT EDGES
+OBJECT_EDGE | example_stairs_up | 3204,3207,0 | 3204,3207,1 | Staircase | Climb-up | 8
+OBJECT_EDGE | example_stairs_down | 3204,3207,1 | 3204,3207,0 | Staircase | Climb-down | 8
+#
+# NPC EDGES
+NPC_EDGE | karamja_ship_port_sarim | 3028,3217,0 | 2956,3146,0 | Seaman Lorris | Travel | 25 | REQ coins>=30 | Yes please. | Yes, please.
+#
+# REQUIREMENTS
+# REQ coins>=30
+# REQ item:Amulet of glory>=1
+# REQ bank:Coins>=30
+# REQ skill:Agility>=5
+# REQ varp:123=1
+# REQ varbit:456=0
+#
+# Add more explicit world/region edges below:

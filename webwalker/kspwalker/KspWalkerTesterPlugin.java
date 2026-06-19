@@ -23,7 +23,7 @@ import net.runelite.client.ui.overlay.OverlayManager;
 )
 public class KspWalkerTesterPlugin extends Plugin
 {
-    public static final String VERSION = "1.0.27.3";
+    public static final String VERSION = "1.0.32.3";
 
     @Inject
     private OverlayManager overlayManager;
@@ -51,6 +51,21 @@ public class KspWalkerTesterPlugin extends Plugin
     {
         overlayManager.add(overlay);
         overlayManager.add(tileOverlay);
+
+        KspBankFileLoadResult bankLoadResult = KspBankFileLoader.reloadDefaultFile();
+        log.info(
+            "KSP Walker loaded {} bank target(s) from {}",
+            bankLoadResult.getLoaded(),
+            bankLoadResult.getFile()
+        );
+
+        if (bankLoadResult.hasErrors())
+        {
+            for (String error : bankLoadResult.getErrors())
+            {
+                log.warn("KSP Walker bank file error: {}", error);
+            }
+        }
 
         KspTransportLoadResult transportLoadResult = KspTransportFileLoader.reloadDefaultFile(script.getWalker().getGraph());
         log.info(
@@ -86,6 +101,21 @@ public class KspWalkerTesterPlugin extends Plugin
             for (String error : teleportLoadResult.getErrors())
             {
                 log.warn("KSP Walker teleport file error: {}", error);
+            }
+        }
+
+        KspGraphEdgeFileLoadResult edgeLoadResult = KspGraphEdgeFileLoader.reloadDefaultFile(script.getWalker().getGraph());
+        log.info(
+            "KSP Walker loaded {} explicit graph edge(s) from {}",
+            edgeLoadResult.getLoaded(),
+            edgeLoadResult.getFile()
+        );
+
+        if (edgeLoadResult.hasErrors())
+        {
+            for (String error : edgeLoadResult.getErrors())
+            {
+                log.warn("KSP Walker edge database error: {}", error);
             }
         }
 

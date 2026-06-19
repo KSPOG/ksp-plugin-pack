@@ -124,8 +124,7 @@ public interface KspWalkerTesterConfig extends Config
     {
         return KspQuickTargetMode.MANUAL_COORDS;
     }
-
-    @Range(min = 0, max = 10)
+@Range(min = 0, max = 10)
     @ConfigItem(keyName = "finishDistance", name = "Finish distance", description = "How close counts as arrived.", section = walkingSection, position = 10)
     default int finishDistance()
     {

@@ -1,0 +1,29 @@
+# KSP Walker bank list
+#
+# Format:
+# BankName | x,y,plane | members yes/no
+#
+# members=no  -> free-to-play bank
+# members=yes -> members-only bank
+#
+Varrock East | 3251,3420,0 | no
+Varrock West | 3182,3440,0 | no
+Grand Exchange | 3164,3486,0 | no
+Edgeville | 3094,3491,0 | no
+Draynor | 3092,3243,0 | no
+Al Kharid | 3269,3167,0 | no
+Falador East | 3013,3355,0 | no
+Falador West | 2946,3368,0 | no
+Lumbridge Castle | 3208,3220,2 | no
+Port Sarim Deposit Box | 3045,3235,0 | no
+Ferox Enclave | 3130,3631,0 | yes
+Catherby | 2809,3441,0 | yes
+Seers' Village | 2725,3492,0 | yes
+Ardougne North | 2616,3332,0 | yes
+Ardougne South | 2655,3283,0 | yes
+Yanille | 2612,3093,0 | yes
+#
+# Shorthand also works:
+# Varrock East 3251,3420,0 no
+#
+# Add more banks below:

@@ -80,12 +80,27 @@ public final class KspWebGraphPathfinder
 
         return graph.getEnabledEdges()
             .stream()
-            .filter(KspWebEdge::isActionEdge)
+            .filter(this::isRegisteredRoutingEdge)
             .filter(edge -> edge.getStart() != null)
             .filter(edge -> state.isSamePlane(edge.getStart()))
             .filter(edge -> state.canReach(edge.getStart()) || state.isNear(edge.getStart(), settings.getGraphLinkDistance()))
             .filter(edge -> edge.getEnd() == null || improvesDistance(edge, target, currentDistance))
             .min(Comparator.comparingInt(edge -> score(state, edge, target)));
+    }
+
+    private boolean isRegisteredRoutingEdge(KspWebEdge edge)
+    {
+        if (edge == null || edge.getId() == null)
+        {
+            return false;
+        }
+
+        if (edge.getId().startsWith("local:"))
+        {
+            return false;
+        }
+
+        return edge.getStart() != null && edge.getEnd() != null;
     }
 
     private boolean improvesDistance(KspWebEdge edge, WorldPoint target, int currentDistance)
