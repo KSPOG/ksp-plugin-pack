@@ -1,0 +1,16 @@
+# KSP Walker transports
+#
+# Simple format:
+# NPC Name @ StartX,StartY,Plane <Menu entry> EndX,EndY,Plane | Optional dialogue
+#
+# Port Sarim -> Karamja presets:
+NPC Captain Tobias @ 3029,3217,0 <Travel> 2956,3146,0 | Yes please. | Yes, please.
+NPC Seaman Lorris @ 3028,3217,0 <Travel> 2956,3146,0 | Yes please. | Yes, please.
+NPC Seaman Thresnor @ 3027,3217,0 <Travel> 2956,3146,0 | Yes please. | Yes, please.
+#
+# More examples:
+# OBJECT Door @ 3234,3383,0 <Open> 3235,3383,0
+# OBJECT_ID 1530 @ 3234,3383,0 <Open> 3235,3383,0
+# NPC_ID 3645 @ 3028,3217,0 <Travel> 2956,3146,0 | Yes please.
+#
+# Add more transports below:

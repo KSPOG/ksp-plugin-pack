@@ -1,0 +1,19 @@
+# KSP Walker teleports
+#
+# OBJECT TELEPORTS
+# Format:
+# OBJECT_TELEPORT Object name @ StartX,StartY,Plane <Menu entry> EndX,EndY,Plane | Optional dialogue
+OBJECT_TELEPORT Spirit tree @ 3184,3509,0 <Travel> 2461,3444,0 | Tree Gnome Stronghold
+#
+# ITEM TELEPORTS
+# Format:
+# ITEM_TELEPORT Item name | item action | dialogue/destination option | EndX,EndY,Plane
+ITEM_TELEPORT Amulet of glory | Rub | Edgeville | 3087,3496,0
+ITEM_TELEPORT Amulet of glory | Rub | Draynor Village | 3105,3251,0
+#
+# SPELL TELEPORTS
+# Format:
+# SPELL_TELEPORT Spell name | EndX,EndY,Plane | Rune name amount, Rune name amount
+SPELL_TELEPORT Varrock Teleport | 3212,3424,0 | Law rune 1, Air rune 3, Fire rune 1
+#
+# Add more teleport definitions below:
